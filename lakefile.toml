@@ -1,0 +1,10 @@
+name = "c0-boole"
+version = "0.1.0"
+defaultTargets = ["c0-boole"]
+
+[[lean_lib]]
+name = "C0Boole"
+
+[[lean_exe]]
+name = "c0-boole"
+root = "Main"
