@@ -1,1 +1,2 @@
 # c0-boole
+This is a C0 frontend for CSLib's Boole, which is an intermediary verification language written in / for Lean4. C0 is a safer subset of C developed at CMU and is used by the entire computer science undergraduate cohort to teach foundational data structures, algorithms, and imperative programming. There is an emphasis placed on safety and code reasoning, and thus translates nicely to the Boole IVL. 

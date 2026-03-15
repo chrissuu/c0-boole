@@ -8,3 +8,8 @@ name = "C0Boole"
 [[lean_exe]]
 name = "c0-boole"
 root = "Main"
+
+[[require]]
+name = "Parser"
+git = "https://github.com/fgdorais/lean4-parser"
+rev = "main"
