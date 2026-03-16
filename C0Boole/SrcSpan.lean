@@ -10,10 +10,10 @@ deriving Repr, BEq, DecidableEq
 structure SrcSpan where
   startLoc : SrcLoc
   endLoc   : SrcLoc
-  file     : String
+  fileName : String
 deriving Repr, BEq, DecidableEq
 
 def SrcSpan.show (s : SrcSpan) : String :=
-  s!"{s.file}:{s.startLoc.line}:{s.startLoc.col}-{s.endLoc.line}:{s.endLoc.col}"
+  s!"{s.fileName}:{s.startLoc.line}:{s.startLoc.col}-{s.endLoc.line}:{s.endLoc.col}"
 
 end C0Boole
