@@ -104,6 +104,109 @@ structure Token where
   kind : TokenKind
   span : SrcSpan
 
+namespace Print
+
+def ppTokenKind : TokenKind → String
+  | .ident name => s!"ident({name})"
+  | .intLit value => s!"intLit({value})"
+  | .hexLit value => s!"hexLit({value})"
+  | .stringLit value => s!"stringLit(\"{value}\")"
+  | .charLit value => s!"charLit('{value}')"
+  | .kwInt => "kwInt"
+  | .kwBool => "kwBool"
+  | .kwString => "kwString"
+  | .kwChar => "kwChar"
+  | .kwVoid => "kwVoid"
+  | .kwStruct => "kwStruct"
+  | .kwTypedef => "kwTypedef"
+  | .kwIf => "kwIf"
+  | .kwElse => "kwElse"
+  | .kwWhile => "kwWhile"
+  | .kwFor => "kwFor"
+  | .kwReturn => "kwReturn"
+  | .kwAssert => "kwAssert"
+  | .kwError => "kwError"
+  | .kwTrue => "kwTrue"
+  | .kwFalse => "kwFalse"
+  | .kwNull => "kwNull"
+  | .kwAlloc => "kwAlloc"
+  | .kwAllocArray => "kwAllocArray"
+  | .kwContinue => "kwContinue"
+  | .kwBreak => "kwBreak"
+  | .kwUse => "kwUse"
+  | .requires => "requires"
+  | .ensures => "ensures"
+  | .loopInvariant => "loopInvariant"
+  | .result => "result"
+  | .length => "length"
+  | .hastag => "hastag"
+  | .lParen => "lParen"
+  | .rParen => "rParen"
+  | .lBrace => "lBrace"
+  | .rBrace => "rBrace"
+  | .lBracket => "lBracket"
+  | .rBracket => "rBracket"
+  | .colon => "colon"
+  | .semicolon => "semicolon"
+  | .comma => "comma"
+  | .question => "question"
+  | .equal => "equal"
+  | .plusEq => "plusEq"
+  | .subEq => "subEq"
+  | .mulEq => "mulEq"
+  | .divEq => "divEq"
+  | .modEq => "modEq"
+  | .andEq => "andEq"
+  | .xorEq => "xorEq"
+  | .orEq => "orEq"
+  | .shlEq => "shlEq"
+  | .shrEq => "shrEq"
+  | .plus => "plus"
+  | .sub => "sub"
+  | .mul => "mul"
+  | .div => "div"
+  | .mod => "mod"
+  | .lt => "lt"
+  | .lte => "lte"
+  | .gt => "gt"
+  | .gte => "gte"
+  | .eq => "eq"
+  | .neq => "neq"
+  | .land => "land"
+  | .lor => "lor"
+  | .and => "and"
+  | .xor => "xor"
+  | .or => "or"
+  | .shl => "shl"
+  | .shr => "shr"
+  | .incr => "incr"
+  | .decr => "decr"
+  | .bang => "bang"
+  | .squiggly => "squiggly"
+  | .negative => "negative"
+  | .int => "int"
+  | .bool => "bool"
+  | .void => "void"
+  | .typedef => "typedef"
+  | .openMultilineComment => "openMultilineComment"
+  | .closeMultilineComment => "closeMultilineComment"
+  | .comment => "comment"
+  | .eof => "eof"
+
+def ppToken (t : Token) : String :=
+  s!"{ppTokenKind t.kind} @ {t.span.show}"
+
+def ppTokens (tokens : List Token) : String :=
+  String.intercalate "\n" (tokens.map ppToken)
+
+end Print
+
+instance : ToString TokenKind where
+  toString := Print.ppTokenKind
+
+instance : ToString Token where
+  toString := Print.ppToken
+
 def tokenKindOptionOfString : String → Option TokenKind
   -- Static lexemes only. Dynamic lexemes (identifiers, literals) return `none`.
   | "int" => some .kwInt
@@ -415,12 +518,12 @@ def toTokenKind? (matched : String.Slice) : Option TokenKind :=
   else
     tokenKindOptionOfString lex
 
-partial def munch (fileName : String) (body : String) : List Token :=
-  let rec go (s : String.Slice) (line col : Nat) (acc : List Token) : List Token :=
+partial def munch (fileName : String) (body : String) : Except String (List Token) :=
+  let rec go (s : String.Slice) (line col : Nat) (acc : List Token) : Except String (List Token) :=
     if s.isEmpty then
       let loc := SrcLoc.mk line col
       let eof : Token := { kind := .eof, span := SrcSpan.mk loc loc fileName }
-      (acc.reverse) ++ [eof]
+      .ok ((acc.reverse) ++ [eof])
     else
       let ws := s.takeWhile isWhitespace
       if !ws.isEmpty then
@@ -430,10 +533,11 @@ partial def munch (fileName : String) (body : String) : List Token :=
         let (_, maximalMatch?) := getMatchesAndMaximalMatch s
         match maximalMatch? with
         | none =>
-          -- Ensure progress even on unknown characters.
-          let one := s.take 1
-          let nextLoc := advanceLocBySlice line col one
-          go (s.drop 1) nextLoc.line nextLoc.col acc
+          match s.front? with
+          | some char =>
+            .error s!"lexical error at {fileName}:{line}:{col}: unexpected character '{char}'"
+          | none =>
+            .error s!"lexical error at {fileName}:{line}:{col}: unexpected end of input"
         | some matched =>
           let consumed := matched.toString.length
           let nextLoc := advanceLocBySlice line col matched
@@ -448,7 +552,7 @@ partial def munch (fileName : String) (body : String) : List Token :=
               }
               go (s.drop consumed) nextLoc.line nextLoc.col (tok :: acc)
             | none =>
-              go (s.drop consumed) nextLoc.line nextLoc.col acc
+              .error s!"lexical error at {fileName}:{line}:{col}: malformed token `{matched.toString}`"
   go body.toSlice 1 1 []
 
 end C0Boole.Lexer
