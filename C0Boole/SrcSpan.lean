@@ -1,5 +1,8 @@
 namespace C0Boole
 
+/-- Useful helpers. -/
+def tabWidth : Nat := 8
+
 /-- Location in a source file. -/
 structure SrcLoc where
   line : Nat
