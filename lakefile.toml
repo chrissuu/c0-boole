@@ -7,7 +7,7 @@ name = "C0Boole"
 
 [[lean_exe]]
 name = "c0-boole"
-root = "Main"
+root = "Top"
 
 [[require]]
 name = "Parser"

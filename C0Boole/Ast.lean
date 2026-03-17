@@ -95,6 +95,7 @@ structure MStm where
 end
 
 abbrev Param := Tau × String
+
 inductive GDecl where
   | fdecl (retType : Tau) (fname : String) (params : List Param)
   | fdefn (retType : Tau) (fname : String) (params : List Param) (body : List MStm)
