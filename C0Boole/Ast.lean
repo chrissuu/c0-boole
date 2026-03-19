@@ -300,4 +300,7 @@ def ppProgramRaw (program : Program) : String :=
 
 end Print
 
+instance : ToString Program where
+  toString := Print.ppProgram
+
 end C0Boole

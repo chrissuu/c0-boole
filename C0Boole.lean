@@ -2,4 +2,5 @@
 -- Import modules here that should be built as part of the library.
 import C0Boole.Core
 import C0Boole.Ast
+import C0Boole.Parse
 import C0Boole.Lexer

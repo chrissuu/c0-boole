@@ -14,5 +14,9 @@ int main() {
 def main : IO Unit :=
   let lexedProgram := C0Boole.Lexer.munch "" simpleProgram
   match lexedProgram with
-  | .ok tokens => IO.println tokens
   | .error err => IO.eprintln err
+  | .ok tokens =>
+    let parsedProgram := C0Boole.Parse.parseProgramFromTokens tokens
+    match parsedProgram with
+    | .error err => IO.eprintln err
+    | .ok program => IO.eprintln program

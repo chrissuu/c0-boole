@@ -1,3 +1,16 @@
+/-
+Parser
+
+See C0 reference manual here: https://c0.cs.cmu.edu/docs/c0-reference.pdf
+
+This uses a parser combinator library to parse the tokens produced by the lexer.
+Note: since memory is currently unsupported, this means that our grammar is still
+context free. However, with the introduction of pointers, our grammar will no longer
+become context free and we will need a workaround.
+
+Author: Chris Su <chrjs@cmu.edu>
+-/
+
 import Parser
 import C0Boole.Ast
 import C0Boole.Lexer
@@ -20,6 +33,9 @@ def satisfyKind (f : Lexer.TokenKind -> Option a) : P a :=
 -- "Expect" primitive: consume and return the next token when `pred` matches.
 def expectKindTok (pred : Lexer.TokenKind -> Bool) : P Tok :=
   tokenFilter (fun tk => pred tk.kind)
+
+def expectKindTokMsg (pred : Lexer.TokenKind -> Bool) (msg : String) : P Tok :=
+  withErrorMessage msg <| expectKindTok pred
 
 -- Same as `expectKindTok` but discard the token payload.
 def expectKind (pred : Lexer.TokenKind -> Bool) : P Unit := do
@@ -80,9 +96,9 @@ def parseVar : P MarkedExpr := do
 
 mutual
 def parseParenExpr : P MarkedExpr := do
-  let lTok ← expectKindTok (fun | .lParen => true | _ => false)
+  let lTok ← expectKindTokMsg (fun | .lParen => true | _ => false) "expected '('"
   let e ← parseExpr
-  let rTok ← expectKindTok (fun | .rParen => true | _ => false)
+  let rTok ← expectKindTokMsg (fun | .rParen => true | _ => false) "expected ')'"
   pure { e with
     span := some (spanFromTokenBounds lTok rTok)
   }
@@ -193,6 +209,8 @@ def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
   let rest := restRev.reverse
   pure <| List.foldl (fun acc (o, rhs) => mkExpr (.binop o acc rhs)) lhs rest
 
+-- These parsers build on each other through the precedence binding strength of C0
+-- C0 reference, page 20
 def parseMulExpr : P MarkedExpr :=
   parseLeftAssoc parseUnary parseMulOp
 
@@ -246,23 +264,23 @@ def parseCondExpr : P MarkedExpr := do
     pairs
 
 def parseExpr : P MarkedExpr :=
-  parseCondExpr
+  withErrorMessage "while parsing expression" parseCondExpr
 
 end
 
 def parseReturnStm : P MarkedStm := do
-  let kwTok ← expectKindTok (only .kwReturn)
+  let kwTok ← expectKindTokMsg (only .kwReturn) "expected 'return'"
   let value? ← option? parseExpr
-  let semiTok ← expectKindTok (only .semicolon)
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after return statement"
   pure { node := .ret value?
        , span := some (spanFromTokenBounds kwTok semiTok)
        }
 
 def parseAssignStm : P MarkedStm := do
-  let idTok ← expectKindTok (fun | .ident _ => true | _ => false)
+  let idTok ← expectKindTokMsg (fun | .ident _ => true | _ => false) "expected identifier"
   let op ← parseAssignOp
   let rhs ← parseExpr
-  let semiTok ← expectKindTok (only .semicolon)
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after assignment"
   let varName :=
     match idTok.kind with
     | .ident name => name
@@ -274,7 +292,7 @@ def parseAssignStm : P MarkedStm := do
 
 def parseExprStm : P MarkedStm := do
   let (e, exprSpan) ← withConsumedSpan parseExpr
-  let semiTok ← expectKindTok (only .semicolon)
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after expression"
   let stmSpan :=
     match exprSpan with
     | some sp => some { startLoc := sp.startLoc, endLoc := semiTok.span.endLoc, fileName := sp.fileName }
@@ -282,7 +300,8 @@ def parseExprStm : P MarkedStm := do
   pure { node := .expr e, span := stmSpan }
 
 def parseStm : P MarkedStm :=
-  parseReturnStm <|> parseAssignStm <|> parseExprStm
+  withErrorMessage "while parsing statement" <|
+    (parseReturnStm <|> parseAssignStm <|> parseExprStm)
 
 def parseTau : P Tau :=
   satisfyKind (fun
@@ -292,10 +311,10 @@ def parseTau : P Tau :=
     | _ => none)
 
 def parseTypedef : P GDecl := do
-  let _ ← expectKindTok (only .kwTypedef)
+  let _ ← expectKindTokMsg (only .kwTypedef) "expected 'typedef'"
   let tau ← parseTau
   let aliasIdent ← parseIdent
-  let _ ← expectKindTok (only .semicolon)
+  let _ ← expectKindTokMsg (only .semicolon) "expected ';' after typedef declaration"
   pure (.typedef tau aliasIdent)
 
 def parseParam : P Param := do
@@ -306,32 +325,33 @@ def parseParam : P Param := do
 def parseFdecl : P GDecl := do
   let tau ← parseTau
   let fname ← parseIdent
-  let _ ← expectKindTok (only .lParen)
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' in function declaration"
   let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
-  let _ ← expectKindTok (only .rParen)
-  let _ ← expectKindTok (only .semicolon)
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' in function declaration"
+  let _ ← expectKindTokMsg (only .semicolon) "expected ';' after function declaration"
   pure (.fdecl tau fname params)
 
 
 def parseFdefn : P GDecl := do
   let tau ← parseTau
   let fname ← parseIdent
-  let _ ← expectKindTok (only .lParen)
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' in function definition"
   let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
-  let _ ← expectKindTok (only .rParen)
-  let _ ← expectKindTok (only .lBrace)
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' in function definition"
+  let _ ← expectKindTokMsg (only .lBrace) "expected '{' to start function body"
   let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
-  let _ ← expectKindTok (only .rBrace)
+  let _ ← expectKindTokMsg (only .rBrace) "expected '}' to close function body"
   pure (.fdefn tau fname params stms)
 
 def parseGdecl : P GDecl :=
-  parseTypedef <|> parseFdefn <|> parseFdecl
+  withErrorMessage "while parsing global declaration" <|
+    (parseTypedef <|> parseFdefn <|> parseFdecl)
 
 def runParser {a : Type} (p : P a) (tokens : List Tok) : Except String a :=
   -- Accept optional lexer-emitted EOF token, then require end of token stream.
   match Parser.run (p <* optional eofTok <* endOfInput) (Parser.Stream.mkOfList tokens) with
   | .ok _ x => .ok x
-  | .error _ _ => .error "parse error"
+  | .error _ err => .error s!"parse error: {err}"
 
 def parseExprFromTokens (tokens : List Tok) : Except String MarkedExpr :=
   runParser parseExpr tokens
