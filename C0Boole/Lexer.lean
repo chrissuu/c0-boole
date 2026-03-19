@@ -99,10 +99,12 @@ inductive TokenKind where
   | comment -- //
 
   | eof
+deriving Repr, BEq, DecidableEq
 
 structure Token where
   kind : TokenKind
   span : SrcSpan
+deriving Repr, BEq, DecidableEq
 
 namespace Print
 

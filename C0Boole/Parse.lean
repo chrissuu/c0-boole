@@ -14,17 +14,19 @@ def mkExpr (node : Expr) : MarkedExpr :=
   { node := node, span := none }
 
 -- Consume one token and decode its `TokenKind` with `f`.
-def satisfyKind (f : Lexer.TokenKind → Option α) : P α :=
+def satisfyKind (f : Lexer.TokenKind -> Option a) : P a :=
   tokenMap (fun tk => f tk.kind)
 
 -- "Expect" primitive: consume and return the next token when `pred` matches.
-def expectKindTok (pred : Lexer.TokenKind → Bool) : P Tok :=
+def expectKindTok (pred : Lexer.TokenKind -> Bool) : P Tok :=
   tokenFilter (fun tk => pred tk.kind)
 
 -- Same as `expectKindTok` but discard the token payload.
-def expectKind (pred : Lexer.TokenKind → Bool) : P Unit := do
+def expectKind (pred : Lexer.TokenKind -> Bool) : P Unit := do
   let _ ← expectKindTok pred
   pure ()
+
+def only (tok : Lexer.TokenKind) := (fun t => t == tok)
 
 def lParen : P Unit := expectKind (fun | .lParen => true | _ => false)
 def rParen : P Unit := expectKind (fun | .rParen => true | _ => false)
@@ -32,6 +34,8 @@ def comma : P Unit := expectKind (fun | .comma => true | _ => false)
 def semicolon : P Unit := expectKind (fun | .semicolon => true | _ => false)
 def kwReturn : P Unit := expectKind (fun | .kwReturn => true | _ => false)
 def eofTok : P Unit := expectKind (fun | .eof => true | _ => false)
+def qmark : P Unit := expectKind (fun | .question => true | _ => false)
+def colon : P Unit := expectKind (fun | .colon => true | _ => false)
 
 def spanFromTokenBounds (startTok endTok : Tok) : SrcSpan :=
   { startLoc := startTok.span.startLoc
@@ -47,8 +51,7 @@ def spanFromConsumed (consumed : List Tok) : Option SrcSpan :=
     some (spanFromTokenBounds first last)
 
 /-- Parse `p` and recover the span from consumed tokens. -/
-def withConsumedSpan (p : P α) : P (α × Option SrcSpan) := do
-  -- Snapshot stream before and after parsing `p`, then diff `past`.
+def withConsumedSpan (p : P a) : P (a × Option SrcSpan) := do
   let before ← Parser.getStream
   let x ← p
   let after ← Parser.getStream
@@ -75,6 +78,15 @@ def parseVar : P MarkedExpr := do
   let (name, sp) ← withConsumedSpan parseIdent
   pure { node := .var name, span := sp }
 
+mutual
+def parseParenExpr : P MarkedExpr := do
+  let lTok ← expectKindTok (fun | .lParen => true | _ => false)
+  let e ← parseExpr
+  let rTok ← expectKindTok (fun | .rParen => true | _ => false)
+  pure { e with
+    span := some (spanFromTokenBounds lTok rTok)
+  }
+
 def parseAtom : P MarkedExpr :=
   first [
     parseIntLit,
@@ -87,6 +99,7 @@ def parseUnOp : P UnOp :=
   satisfyKind (fun
     | .bang => some .bang
     | .squiggly => some .bitNot
+    | .sub => some .negative
     | .negative => some .negative
     | .incr => some .incr
     | .decr => some .decr
@@ -125,6 +138,31 @@ def parseEqOp : P BinOp :=
     | .neq => some .neq
     | _ => none)
 
+def parseBitAndOp : P BinOp :=
+  satisfyKind (fun
+    | .and => some .bitAnd
+    | _ => none)
+
+def parseBitXorOp : P BinOp :=
+  satisfyKind (fun
+    | .xor => some .xor
+    | _ => none)
+
+def parseBitOrOp : P BinOp :=
+  satisfyKind (fun
+    | .or => some .bitOr
+    | _ => none)
+
+def parseLandOp : P BinOp :=
+  satisfyKind (fun
+    | .land => some .land
+    | _ => none)
+
+def parseLorOp : P BinOp :=
+  satisfyKind (fun
+    | .lor => some .lor
+    | _ => none)
+
 def parseAssignOp : P AssignOp :=
   satisfyKind (fun
     | .assign => some .assign
@@ -141,14 +179,9 @@ def parseAssignOp : P AssignOp :=
     | _ => none)
 
 def parseUnary : P MarkedExpr := do
-  -- collect prefix unary operators
   let opsRev ← Parser.foldl (fun acc op => op :: acc) [] parseUnOp
   let ops := opsRev.reverse
-
-  -- base expression
   let base ← parseAtom
-
-  -- apply operators right-associatively: - ! x ==> -( !x )
   pure <| List.foldr (fun op acc => mkExpr (.unop op acc)) base ops
 
 def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
@@ -160,39 +193,88 @@ def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
   let rest := restRev.reverse
   pure <| List.foldl (fun acc (o, rhs) => mkExpr (.binop o acc rhs)) lhs rest
 
-
 def parseMulExpr : P MarkedExpr :=
   parseLeftAssoc parseUnary parseMulOp
-
 
 def parseAddExpr : P MarkedExpr :=
   parseLeftAssoc parseMulExpr parseAddOp
 
+def parseShiftExpr : P MarkedExpr :=
+  parseLeftAssoc parseAddExpr parseShiftOp
 
+def parseCompExpr : P MarkedExpr :=
+  parseLeftAssoc parseShiftExpr parseCompOp
 
+def parseEqExpr : P MarkedExpr :=
+  parseLeftAssoc parseCompExpr parseEqOp
 
+def parseBitAndExpr : P MarkedExpr :=
+  parseLeftAssoc parseEqExpr parseBitAndOp
 
-def parseExpr : P MarkedExpr := do
-  let lhs ← parseMulExpr
-  -- Parse a left-associative chain: mulExpr (('+'|'-') mulExpr)*
-  let restRev ← Parser.foldl (fun acc x => x :: acc) [] do
-    let op ← parseAddOp
-    let rhs ← parseMulExpr
-    pure (op, rhs)
-  let rest := restRev.reverse
-  pure <| List.foldl (fun acc (op, rhs) => mkExpr (.binop op acc rhs)) lhs rest
+def parseBitXorExpr : P MarkedExpr :=
+  parseLeftAssoc parseBitAndExpr parseBitXorOp
+
+def parseBitOrExpr : P MarkedExpr :=
+  parseLeftAssoc parseBitXorExpr parseBitOrOp
+
+def parseLandExpr : P MarkedExpr :=
+  parseLeftAssoc parseBitOrExpr parseLandOp
+
+def parseLorExpr : P MarkedExpr :=
+  parseLeftAssoc parseLandExpr parseLorOp
+
+def parseCondExpr : P MarkedExpr := do
+  let firstTest ← parseLorExpr
+  -- Parse chained conditional segments and fold right:
+  -- a ? b : c ? d : e  ==>  a ? b : (c ? d : e)
+  let (pairsRev, finalElse) ← Parser.foldl
+    (fun (acc : List (MarkedExpr × MarkedExpr) × MarkedExpr) seg =>
+      let (pairs, currTest) := acc
+      let (thenBranch, nextTest) := seg
+      ((currTest, thenBranch) :: pairs, nextTest))
+    ([], firstTest)
+    (do
+      qmark
+      let thenBranch ← parseLorExpr
+      colon
+      let nextTest ← parseLorExpr
+      pure (thenBranch, nextTest))
+  let pairs := pairsRev.reverse
+  pure <| List.foldr
+    (fun (test, thenBranch) elseBranch => mkExpr (.ternary test thenBranch elseBranch))
+    finalElse
+    pairs
+
+def parseExpr : P MarkedExpr :=
+  parseCondExpr
+
+end
 
 def parseReturnStm : P MarkedStm := do
-  let kwTok ← expectKindTok (fun | .kwReturn => true | _ => false)
+  let kwTok ← expectKindTok (only .kwReturn)
   let value? ← option? parseExpr
-  let semiTok ← expectKindTok (fun | .semicolon => true | _ => false)
+  let semiTok ← expectKindTok (only .semicolon)
   pure { node := .ret value?
        , span := some (spanFromTokenBounds kwTok semiTok)
        }
 
+def parseAssignStm : P MarkedStm := do
+  let idTok ← expectKindTok (fun | .ident _ => true | _ => false)
+  let op ← parseAssignOp
+  let rhs ← parseExpr
+  let semiTok ← expectKindTok (only .semicolon)
+  let varName :=
+    match idTok.kind with
+    | .ident name => name
+    | _ => ""
+  let span := some (spanFromTokenBounds idTok semiTok)
+  match op with
+  | .assign => pure { node := .assign varName rhs, span := span }
+  | _ => pure { node := .asop varName op rhs, span := span }
+
 def parseExprStm : P MarkedStm := do
   let (e, exprSpan) ← withConsumedSpan parseExpr
-  let semiTok ← expectKindTok (fun | .semicolon => true | _ => false)
+  let semiTok ← expectKindTok (only .semicolon)
   let stmSpan :=
     match exprSpan with
     | some sp => some { startLoc := sp.startLoc, endLoc := semiTok.span.endLoc, fileName := sp.fileName }
@@ -200,9 +282,52 @@ def parseExprStm : P MarkedStm := do
   pure { node := .expr e, span := stmSpan }
 
 def parseStm : P MarkedStm :=
-  parseReturnStm <|> parseExprStm
+  parseReturnStm <|> parseAssignStm <|> parseExprStm
 
-def runParser {α : Type} (p : P α) (tokens : List Tok) : Except String α :=
+def parseTau : P Tau :=
+  satisfyKind (fun
+    | .kwInt => some .int
+    | .kwBool => some .bool
+    | .kwVoid => some .void
+    | _ => none)
+
+def parseTypedef : P GDecl := do
+  let _ ← expectKindTok (only .kwTypedef)
+  let tau ← parseTau
+  let aliasIdent ← parseIdent
+  let _ ← expectKindTok (only .semicolon)
+  pure (.typedef tau aliasIdent)
+
+def parseParam : P Param := do
+  let tau ← parseTau
+  let paramName ← parseIdent
+  pure (tau, paramName)
+
+def parseFdecl : P GDecl := do
+  let tau ← parseTau
+  let fname ← parseIdent
+  let _ ← expectKindTok (only .lParen)
+  let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
+  let _ ← expectKindTok (only .rParen)
+  let _ ← expectKindTok (only .semicolon)
+  pure (.fdecl tau fname params)
+
+
+def parseFdefn : P GDecl := do
+  let tau ← parseTau
+  let fname ← parseIdent
+  let _ ← expectKindTok (only .lParen)
+  let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
+  let _ ← expectKindTok (only .rParen)
+  let _ ← expectKindTok (only .lBrace)
+  let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
+  let _ ← expectKindTok (only .rBrace)
+  pure (.fdefn tau fname params stms)
+
+def parseGdecl : P GDecl :=
+  parseTypedef <|> parseFdefn <|> parseFdecl
+
+def runParser {a : Type} (p : P a) (tokens : List Tok) : Except String a :=
   -- Accept optional lexer-emitted EOF token, then require end of token stream.
   match Parser.run (p <* optional eofTok <* endOfInput) (Parser.Stream.mkOfList tokens) with
   | .ok _ x => .ok x
@@ -213,3 +338,9 @@ def parseExprFromTokens (tokens : List Tok) : Except String MarkedExpr :=
 
 def parseStmFromTokens (tokens : List Tok) : Except String MarkedStm :=
   runParser parseStm tokens
+
+def parseGdeclFromTokens (tokens : List Tok) : Except String GDecl :=
+  runParser parseGdecl tokens
+
+def parseProgramFromTokens (tokens : List Tok) : Except String Program := do
+  runParser (Parser.foldl (fun acc decl => decl :: acc) [] parseGdecl) tokens

@@ -53,7 +53,6 @@ inductive Tau where
   | int
   | bool
   | void
-  | typedef (alias : String)
 
 mutual
 inductive Expr where
@@ -151,7 +150,6 @@ def ppTau : Tau → String
   | .int => "int"
   | .bool => "bool"
   | .void => "void"
-  | .typedef alias => alias
 
 private def indent (str : String) : String :=
   str.splitOn "\n"
