@@ -23,6 +23,9 @@ abbrev Tok := C0Boole.Lexer.Token
 abbrev TokStream := Parser.Stream.OfList Tok
 abbrev P := SimpleParser TokStream Tok
 
+instance : Inhabited (P MarkedStm) where
+  default := pure { node := .nop, span := none }
+
 def mkExpr (node : Expr) : MarkedExpr :=
   { node := node, span := none }
 
@@ -41,6 +44,9 @@ def expectKindTokMsg (pred : Lexer.TokenKind -> Bool) (msg : String) : P Tok :=
 def expectKind (pred : Lexer.TokenKind -> Bool) : P Unit := do
   let _ ← expectKindTok pred
   pure ()
+
+def expectKindMsg (pred : Lexer.TokenKind -> Bool) (msg : String) : P Unit := do
+  withErrorMessage msg <| expectKind pred
 
 def only (tok : Lexer.TokenKind) := (fun t => t == tok)
 
@@ -276,32 +282,22 @@ def parseReturnStm : P MarkedStm := do
        , span := some (spanFromTokenBounds kwTok semiTok)
        }
 
-def parseAssignStm : P MarkedStm := do
+def parseAssignCore : P MarkedStm := do
   let idTok ← expectKindTokMsg (fun | .ident _ => true | _ => false) "expected identifier"
   let op ← parseAssignOp
   let rhs ← parseExpr
-  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after assignment"
   let varName :=
     match idTok.kind with
     | .ident name => name
     | _ => ""
-  let span := some (spanFromTokenBounds idTok semiTok)
+  let span := some idTok.span
   match op with
   | .assign => pure { node := .assign varName rhs, span := span }
   | _ => pure { node := .asop varName op rhs, span := span }
 
-def parseExprStm : P MarkedStm := do
+def parseExprCore : P MarkedStm := do
   let (e, exprSpan) ← withConsumedSpan parseExpr
-  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after expression"
-  let stmSpan :=
-    match exprSpan with
-    | some sp => some { startLoc := sp.startLoc, endLoc := semiTok.span.endLoc, fileName := sp.fileName }
-    | none => some semiTok.span
-  pure { node := .expr e, span := stmSpan }
-
-def parseStm : P MarkedStm :=
-  withErrorMessage "while parsing statement" <|
-    (parseReturnStm <|> parseAssignStm <|> parseExprStm)
+  pure { node := .expr e, span := exprSpan }
 
 def parseTau : P Tau :=
   satisfyKind (fun
@@ -309,6 +305,136 @@ def parseTau : P Tau :=
     | .kwBool => some .bool
     | .kwVoid => some .void
     | _ => none)
+
+def parseVarDefnCore : P MarkedStm := do
+  let tauTok ← expectKindTokMsg
+    (fun | .kwInt | .kwBool | .kwVoid => true | _ => false)
+    "expected type (int, bool, or void)"
+  let tau :=
+    match tauTok.kind with
+    | .kwInt => Tau.int
+    | .kwBool => Tau.bool
+    | .kwVoid => Tau.void
+    | _ => Tau.int
+  let varName ← parseIdent
+  pure { node := .defn varName tau, span := some tauTok.span }
+
+def parseVarDeclCore : P MarkedStm := do
+  let tauTok ← expectKindTokMsg
+    (fun | .kwInt | .kwBool | .kwVoid => true | _ => false)
+    "expected type (int, bool, or void)"
+  let tau :=
+    match tauTok.kind with
+    | .kwInt => Tau.int
+    | .kwBool => Tau.bool
+    | .kwVoid => Tau.void
+    | _ => Tau.int
+  let varName ← parseIdent
+  (do
+    let _ ← expectKindTokMsg (only .assign) "expected '=' in variable declaration"
+    let initExpr ← parseExpr
+    let initStm : MarkedStm := { node := .assign varName initExpr, span := initExpr.span }
+    pure { node := .declare varName tau initStm, span := some tauTok.span })
+  <|>
+  pure { node := .defn varName tau, span := some tauTok.span }
+
+def parseSimpleCore : P MarkedStm :=
+  withErrorMessage "while parsing simple statement" <|
+    (parseVarDeclCore
+    <|> parseAssignCore
+    <|> parseExprCore)
+
+def parseSimpleStm : P MarkedStm := do
+  let (s, coreSpan) ← withConsumedSpan parseSimpleCore
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after simple statement"
+  let span :=
+    match coreSpan with
+    | some sp => some { startLoc := sp.startLoc, endLoc := semiTok.span.endLoc, fileName := sp.fileName }
+    | none => some semiTok.span
+  pure { node := s.node, span := span }
+
+def seqOf (stms : List MarkedStm) : MarkedStm :=
+  match stms with
+  | [] => { node := .nop, span := none }
+  | s :: rest =>
+    rest.foldl (fun acc nxt => { node := .seq acc nxt, span := none }) s
+
+mutual
+
+partial def parseBlockStm : P MarkedStm := do
+  let lTok ← expectKindTokMsg (only .lBrace) "expected '{'"
+  let bodyRev ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
+  let rTok ← expectKindTokMsg (only .rBrace) "expected '}'"
+  let body := seqOf bodyRev.reverse
+  pure { node := body.node, span := some (spanFromTokenBounds lTok rTok) }
+
+partial def parseIfStm : P MarkedStm := do
+  let ifTok ← expectKindTokMsg (only .kwIf) "expected 'if'"
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' after if"
+  let cond ← parseExpr
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' after if condition"
+  let thenBranch ← parseStm
+  let elseBranch ←
+    (do
+      let _ ← expectKindTok (only .kwElse)
+      parseStm)
+    <|>
+    pure { node := .nop, span := none }
+  pure { node := .ifLit cond thenBranch elseBranch, span := some ifTok.span }
+
+partial def parseWhileStm : P MarkedStm := do
+  let whileTok ← expectKindTokMsg (only .kwWhile) "expected 'while'"
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' after while"
+  let cond ← parseExpr
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' after while condition"
+  let body ← parseStm
+  pure { node := .whileLit cond body, span := some whileTok.span }
+
+partial def parseForStm : P MarkedStm := do
+  let forTok ← expectKindTokMsg (only .kwFor) "expected 'for'"
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' after for"
+  let init ← (option? parseSimpleCore)
+  let _ ← expectKindTokMsg (only .semicolon) "expected ';' after for init"
+  let test ← parseExpr
+  let _ ← expectKindTokMsg (only .semicolon) "expected ';' after for test"
+  let update ← (option? parseSimpleCore)
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' after for update"
+  let body ← parseStm
+  let initStm := init.getD { node := .nop, span := none }
+  let updateStm := update.getD { node := .nop, span := none }
+  pure { node := .forLit initStm test updateStm body, span := some forTok.span }
+
+partial def parseAssertStm : P MarkedStm := do
+  let kwTok ← expectKindTokMsg (only .kwAssert) "expected 'assert'"
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' after assert"
+  let e ← parseExpr
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' after assert expression"
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after assert statement"
+  pure { node := .assert e, span := some (spanFromTokenBounds kwTok semiTok) }
+
+partial def parseErrorStm : P MarkedStm := do
+  let kwTok ← expectKindTokMsg (only .kwError) "expected 'error'"
+  let _ ← expectKindTokMsg (only .lParen) "expected '(' after error"
+  let e ← parseExpr
+  let _ ← expectKindTokMsg (only .rParen) "expected ')' after error expression"
+  let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after error statement"
+  pure { node := .error e, span := some (spanFromTokenBounds kwTok semiTok) }
+
+partial def parseNonSimpleStm : P MarkedStm :=
+  withErrorMessage "while parsing statement" <|
+    (parseBlockStm
+    <|> parseIfStm
+    <|> parseWhileStm
+    <|> parseForStm
+    <|> parseReturnStm
+    <|> parseAssertStm
+    <|> parseErrorStm)
+
+partial def parseStm : P MarkedStm :=
+  withErrorMessage "while parsing statement" <|
+    (parseNonSimpleStm <|> parseSimpleStm)
+
+end
 
 def parseTypedef : P GDecl := do
   let _ ← expectKindTokMsg (only .kwTypedef) "expected 'typedef'"
@@ -330,7 +456,6 @@ def parseFdecl : P GDecl := do
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function declaration"
   let _ ← expectKindTokMsg (only .semicolon) "expected ';' after function declaration"
   pure (.fdecl tau fname params)
-
 
 def parseFdefn : P GDecl := do
   let tau ← parseTau

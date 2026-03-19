@@ -82,11 +82,13 @@ inductive Stm where
   | seq (first : MarkedStm) (rest : MarkedStm)
   -- the value is of type MarkedStm and not MarkedExpr, since it translates nicely to scoping rules
   | declare (varName : String) (type : Tau) (value : MarkedStm)
+  | defn (varName : String) (type : Tau)
   | asop (varName : String) (op : AssignOp) (value : MarkedExpr)
   | forLit (init : MarkedStm) (test : MarkedExpr) (update : MarkedStm) (body : MarkedStm)
   -- handles well-typed lines of the form [MarkedExpr];
   | expr : MarkedExpr -> Stm
   | assert (test : MarkedExpr)
+  | error (e : MarkedExpr)
   | nop
 
 structure MarkedStm where
@@ -191,6 +193,8 @@ mutual
 partial def ppStm : Stm → String
   | .assign id e =>
       s!"{id} = {ppMarkedExpr e};"
+  | .defn id tau =>
+      s!"{ppTau tau} {id};"
   | .ret valOpt =>
       match valOpt with
       | some e => s!"return {ppMarkedExpr e};"
@@ -201,6 +205,8 @@ partial def ppStm : Stm → String
       s!"{ppMarkedExpr e};"
   | .assert test =>
       s!"assert({ppMarkedExpr test});"
+  | .error e =>
+      s!"error({ppMarkedExpr e});"
   | .declare id tau body =>
       let bodyStr := ppStm body.node
       if bodyStr.isEmpty || bodyStr == "/* nop */" then
@@ -257,6 +263,8 @@ mutual
 partial def ppStmRaw (indentLevel : Nat) : Stm → String
   | .assign id e =>
       s!"{spaces indentLevel}Assign({id}, {ppMarkedExpr e})"
+  | .defn id tau =>
+      s!"{spaces indentLevel}Defn({id}, {ppTau tau})"
   | .ret valOpt =>
       let retStr := match valOpt with | some e => ppMarkedExpr e | none => "None"
       s!"{spaces indentLevel}Return({retStr})"
@@ -278,6 +286,8 @@ partial def ppStmRaw (indentLevel : Nat) : Stm → String
       s!"{spaces indentLevel}Asop({id}, {ppAssignOp op}, {ppMarkedExpr e})"
   | .assert test =>
       s!"{spaces indentLevel}Assert({ppMarkedExpr test})"
+  | .error e =>
+      s!"{spaces indentLevel}Error({ppMarkedExpr e})"
 
 partial def ppMarkedStmRaw (indentLevel : Nat) (stm : MarkedStm) : String :=
   ppStmRaw indentLevel stm.node
