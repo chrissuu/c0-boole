@@ -50,7 +50,7 @@ inductive TokenKind where
   | comma | question    -- ,?
 
   -- Assignment Operators
-  | equal
+  | assign
   | plusEq
   | subEq
   | mulEq
@@ -150,7 +150,7 @@ def ppTokenKind : TokenKind → String
   | .semicolon => "semicolon"
   | .comma => "comma"
   | .question => "question"
-  | .equal => "equal"
+  | .assign=> "assign"
   | .plusEq => "plusEq"
   | .subEq => "subEq"
   | .mulEq => "mulEq"
@@ -247,7 +247,7 @@ def tokenKindOptionOfString : String → Option TokenKind
   | ";" => some .semicolon
   | "," => some .comma
   | "?" => some .question
-  | "=" => some .equal
+  | "=" => some .assign
   | "+=" => some .plusEq
   | "-=" => some .subEq
   | "*=" => some .mulEq
@@ -478,17 +478,23 @@ def decodeEscapedChar (c : Char) : Char :=
   | '0' => '\u0000'
   | x => x
 
+-- Helper for tracking SrcLoc.
 def advanceLocByChars : Nat → Nat → List Char → SrcLoc
   | line, col, [] => SrcLoc.mk line col
+
+  -- \r\n, \r, \n, are all treated the same
   | line, _, '\r' :: '\n' :: rest => advanceLocByChars (line + 1) 1 rest
   | line, _, '\r' :: rest => advanceLocByChars (line + 1) 1 rest
   | line, _, '\n' :: rest => advanceLocByChars (line + 1) 1 rest
+
+  -- see SrcSpan for tabWidth variable. TODO: move tabWidth somewhere more visible?
   | line, col, '\t' :: rest => advanceLocByChars line (col + tabWidth) rest
   | line, col, _ :: rest => advanceLocByChars line (col + 1) rest
 
 def advanceLocBySlice (line col : Nat) (s : String.Slice) : SrcLoc :=
   advanceLocByChars line col s.toString.toList
 
+-- Given some matched String Slice, this function will attempt to wrap it with the appropriate TokenKind
 def toTokenKind? (matched : String.Slice) : Option TokenKind :=
   let lex := matched.toString
   if lex.startsWith "0x" || lex.startsWith "0X" then
