@@ -448,24 +448,6 @@ def getMatchesAndMaximalMatch (s : String.Slice) : List String.Slice × Option S
   let maximalMatch := List.maxOn? (λ x => x.positions.length) patternMatches
   (patternMatches, maximalMatch)
 
-structure WhiteSpaceInfo where
-  numTabs : Nat     -- \t
-  numCarRet : Nat   -- \r
-  numNewlines : Nat -- \n
-  numCrlf : Nat     -- \r\n
-
-def countWhiteSpaceType (s : String.Slice) : WhiteSpaceInfo :=
-  let numTabs := (s.split "\t").length - 1
-  let numCarRet := (s.split "\r").length - 1
-  let numNewlines := (s.split "\n").length - 1
-  let numCrlf := (s.split "\r\n").length - 1
-
-  { numTabs := numTabs
-  , numCarRet := numCarRet - numCrlf -- subtract to avoid double counting
-  , numNewlines := numNewlines - numCrlf
-  , numCrlf := numCrlf
-  }
-
 def isWhitespace (c : Char) : Bool :=
   c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\u000B' || c == '\u000C'
 

@@ -7,7 +7,7 @@ Author: Chris Su <chrjs@cmu.edu>
 -/
 import C0Boole.SrcSpan
 
-namespace C0Boole
+namespace C0Boole.Ast
 
 inductive AssignOp where
   | assign -- assignment
@@ -313,4 +313,4 @@ end Print
 instance : ToString Program where
   toString := Print.ppProgram
 
-end C0Boole
+end C0Boole.Ast

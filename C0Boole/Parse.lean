@@ -18,6 +18,7 @@ import C0Boole.Lexer
 namespace C0Boole.Parse
 open Parser
 open C0Boole
+open C0Boole.Ast
 
 abbrev Tok := C0Boole.Lexer.Token
 abbrev TokStream := Parser.Stream.OfList Tok
