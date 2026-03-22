@@ -96,7 +96,8 @@ private def runFrontend (infile : String) : IO (Except String Unit) := do
   pure <| do
     let tokens ← C0Boole.Lexer.munch infile source
     let program ← C0Boole.Parse.parseProgramFromTokens tokens
-    let tc_result ← C0Boole.Typechecker.tc program
+    let elabbedProgram ← C0Boole.Elab.elabProgram program
+    let tc_result ← C0Boole.Typechecker.tc elabbedProgram
     pure ()
 
 def main (args : List String) : IO UInt32 := do

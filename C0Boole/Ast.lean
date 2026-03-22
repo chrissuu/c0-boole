@@ -48,6 +48,7 @@ inductive UnOp where
   | negative
   | incr
   | decr
+deriving BEq, DecidableEq
 
 inductive Tau where
   | int
@@ -63,6 +64,8 @@ inductive Expr where
   | ternary (test : MarkedExpr) (thenBranch : MarkedExpr) (elseBranch : MarkedExpr)
   | trueLit
   | falseLit
+  | charLit (char : Char)
+  | stringLit (string : String)
   | call (fname : String) (args : List MarkedExpr)
 
 structure MarkedExpr where
@@ -173,6 +176,8 @@ partial def ppExpr : Expr → String
   | .intLit n => toString n
   | .trueLit => "true"
   | .falseLit => "false"
+  | .stringLit s => s
+  | .charLit c => toString c
   | .unop op operand =>
       s!"{ppUnOp op}({ppMarkedExpr operand})"
   | .binop op lhs rhs =>

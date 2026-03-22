@@ -287,9 +287,6 @@ def tokenKindOptionOfString : String → Option TokenKind
   | "//" => some .comment
   | _ => none
 
-def marker (fileName : String) (lineNumber : Nat) (leftCol : Nat) (rightCol : Nat) : SrcSpan :=
-  SrcSpan.mk (SrcLoc.mk lineNumber leftCol) (SrcLoc.mk lineNumber rightCol) (fileName)
-
 /--
 Maximal Munch Lexer
 

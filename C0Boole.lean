@@ -4,4 +4,5 @@ import C0Boole.Core
 import C0Boole.Ast
 import C0Boole.Parse
 import C0Boole.Lexer
+import C0Boole.Elab
 import C0Boole.Typechecker

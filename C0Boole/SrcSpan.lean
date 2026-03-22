@@ -19,4 +19,23 @@ deriving Repr, BEq, DecidableEq
 def SrcSpan.show (s : SrcSpan) : String :=
   s!"{s.fileName}:{s.startLoc.line}:{s.startLoc.col}-{s.endLoc.line}:{s.endLoc.col}"
 
+def spanCover (startSpan endSpan : SrcSpan) : SrcSpan :=
+  { startLoc := startSpan.startLoc
+  , endLoc := endSpan.endLoc
+  , fileName := startSpan.fileName
+  }
+
+def spanCoverOpt (startSpan? endSpan? : Option SrcSpan) : Option SrcSpan :=
+  match startSpan?, endSpan? with
+  | some startSpan, some endSpan => some (spanCover startSpan endSpan)
+  | some startSpan, none => some startSpan
+  | none, some endSpan => some endSpan
+  | none, none => none
+
+def spanCover3Opt (s1? s2? s3? : Option SrcSpan) : Option SrcSpan :=
+  spanCoverOpt (spanCoverOpt s1? s2?) s3?
+
+def spanCover4Opt (s1? s2? s3? s4? : Option SrcSpan) : Option SrcSpan :=
+  spanCoverOpt (spanCover3Opt s1? s2? s3?) s4?
+
 end C0Boole
