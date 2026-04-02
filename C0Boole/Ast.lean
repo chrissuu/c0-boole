@@ -10,7 +10,7 @@ import C0Boole.SrcSpan
 namespace C0Boole.Ast
 
 inductive AssignOp where
-  | assign -- assignment
+  | assign     -- assignment
   | plusEq     -- +=
   | subEq      -- -=
   | mulEq      -- *=
