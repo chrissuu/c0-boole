@@ -37,6 +37,9 @@ def mkElabExpr (node : Expr) (span : Option SrcSpan) : MarkedExpr :=
 def mkElabStm (node : Stm) (span : Option SrcSpan) : MarkedStm :=
   MarkedStm.mk node span
 
+def mkElabAnno (node : Anno) (span : Option SrcSpan) : MarkedAnno :=
+  MarkedAnno.mk node span
+
 partial def elabMExpr (mexp : MarkedExpr) :=
   match mexp.node with
   | .binop op lhs rhs =>
@@ -118,10 +121,17 @@ partial def elabMStm (mstm : MarkedStm) :=
   | .error e => mkElabStm (.error (elabMExpr e)) mstm.span
   | _ => mstm
 
+def elabMAnno (a : MarkedAnno) :=
+  match a.node with
+  | .requires precondition => mkElabAnno (.requires (elabMExpr precondition)) a.span
+  | .ensures postcondition => mkElabAnno (.ensures (elabMExpr postcondition)) a.span
+  | .asserts e => mkElabAnno (.asserts (elabMExpr e)) a.span
+  | .loopInvariant e => mkElabAnno (.loopInvariant (elabMExpr e)) a.span
+
 def elabGDecl (gdecl : GDecl) : GDecl :=
   match gdecl with
-  | .fdefn retType fname params body =>
-    .fdefn retType fname params (List.map elabMStm body)
+  | .fdefn retType fname params body annotations =>
+    .fdefn retType fname params (List.map elabMStm body) (List.map elabMStm annotations)
   | _ => gdecl
 
 def elabProgram (program : Ast.Program) : Except String Ast.Program :=

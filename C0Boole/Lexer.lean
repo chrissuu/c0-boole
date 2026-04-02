@@ -96,6 +96,9 @@ inductive TokenKind where
 
   | openMultilineComment -- /*
   | closeMultilineComment -- */
+  | annotation -- //@
+  | openMultilineAnnotation -- /*@
+  | closeMultilineAnnotation -- @*/
   | comment -- //
 
   | eof
@@ -107,7 +110,6 @@ structure Token where
 deriving Repr, BEq, DecidableEq
 
 namespace Print
-
 def ppTokenKind : TokenKind → String
   | .ident name => s!"ident({name})"
   | .intLit value => s!"intLit({value})"
@@ -192,6 +194,9 @@ def ppTokenKind : TokenKind → String
   | .typedef => "typedef"
   | .openMultilineComment => "openMultilineComment"
   | .closeMultilineComment => "closeMultilineComment"
+  | .annotation => "annotation"
+  | .openMultilineAnnotation => "openMultilineAnnotation"
+  | .closeMultilineAnnotation => "closeMultilineAnnotation"
   | .comment => "comment"
   | .eof => "eof"
 
@@ -233,9 +238,9 @@ def tokenKindOptionOfString : String → Option TokenKind
   | "continue" => some .kwContinue
   | "break" => some .kwBreak
   | "#use" => some .kwUse
-  | "\\requires" => some .requires
-  | "\\ensures" => some .ensures
-  | "\\loop_invariant" => some .loopInvariant
+  | "requires" => some .requires
+  | "ensures" => some .ensures
+  | "loop_invariant" => some .loopInvariant
   | "\\result" => some .result
   | "\\length" => some .length
   | "#" => some .hastag
@@ -284,6 +289,9 @@ def tokenKindOptionOfString : String → Option TokenKind
   | "~" => some .squiggly
   | "/*" => some .openMultilineComment
   | "*/" => some .closeMultilineComment
+  | "//@" => some .annotation
+  | "/*@" => some .openMultilineAnnotation
+  | "@*/" => some .closeMultilineAnnotation
   | "//" => some .comment
   | _ => none
 
@@ -407,13 +415,19 @@ def matchCharLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
       else if close.toString != "'" then none
       else some (s.take 3)
 
-/-- Matches for the two types of supported comments: // until first \n or \r; /* ... */, which can span multiline -/
+/-- Matches regular comments only:
+`// ...` until first `\n` or `\r`, and `/* ... */` (possibly multiline).
+Annotation forms (`//@ ...` and `/*@ ... @*/`) are intentionally excluded. -/
 def matchComment (s : String.Slice) (_ : Nat) : Option String.Slice :=
-  if s.startsWith "//" then
+  if s.startsWith "//@" then
+    none
+  else if s.startsWith "//" then
     let body := s.drop 2
     let commentBody := body.takeWhile (fun c => c != '\n' && c != '\r')
     let consumed := 2 + commentBody.toString.length
     some (s.take consumed)
+  else if s.startsWith "/*@" then
+    none
   else if s.startsWith "/*" then
     match (s.drop 2).find? "*/" with
     | none => none
@@ -427,6 +441,7 @@ def matchComment (s : String.Slice) (_ : Nat) : Option String.Slice :=
 
 def staticTokenLexemes : List String :=
   [
+    "/*@", "//@", "@*/",
     "<<=", ">>=",
     "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=",
     "<=", ">=", "==", "!=", "&&", "||", "<<", ">>", "++", "--",

@@ -362,6 +362,49 @@ def seqOf (stms : List MarkedStm) : MarkedStm :=
 
 mutual
 
+partial def parseContractKind : P (MarkedExpr → Anno) :=
+  satisfyKind (fun
+    | .requires => some Anno.requires
+    | .ensures => some Anno.ensures
+    | .loopInvariant => some Anno.loopInvariant
+    | .kwAssert => some Anno.asserts
+    | .ident "asserts" => some Anno.asserts
+    | _ => none)
+
+partial def parseSingleAnnotation : P MarkedAnno :=
+  let parseLineAnnotation : P MarkedAnno := do
+    let startTok ← expectKindTokMsg (only .annotation) "expected '//@'"
+    let (annoNode, _) ← withConsumedSpan do
+      let contractCtor ← parseContractKind
+      let contractExpr ← parseExpr
+      pure (contractCtor contractExpr)
+    let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after annotation contract"
+    let endLoc := semiTok.span.endLoc
+    pure { node := annoNode
+         , span := some { startLoc := startTok.span.startLoc
+                        , endLoc := endLoc
+                        , fileName := startTok.span.fileName
+                        }
+         }
+
+  let parseMultilineAnnotation : P MarkedAnno := do
+    let startTok ← expectKindTokMsg (only .openMultilineAnnotation) "expected '/*@'"
+    let (annoNode, _) ← withConsumedSpan do
+      let contractCtor ← parseContractKind
+      let contractExpr ← parseExpr
+      pure (contractCtor contractExpr)
+    let _ ← expectKindTokMsg (only .semicolon) "expected ';' after annotation contract"
+    let closeTok ← expectKindTokMsg (only .closeMultilineAnnotation) "expected '@*/' to close multiline annotation"
+    let endLoc := closeTok.span.endLoc
+    pure { node := annoNode
+         , span := some { startLoc := startTok.span.startLoc
+                        , endLoc := endLoc
+                        , fileName := startTok.span.fileName
+                        }
+         }
+
+  parseLineAnnotation <|> parseMultilineAnnotation
+
 partial def parseBlockStm : P MarkedStm := do
   let lTok ← expectKindTokMsg (only .lBrace) "expected '{'"
   let bodyRev ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
@@ -413,6 +456,10 @@ partial def parseAssertStm : P MarkedStm := do
   let semiTok ← expectKindTokMsg (only .semicolon) "expected ';' after assert statement"
   pure { node := .assert e, span := some (spanFromTokenBounds kwTok semiTok) }
 
+partial def parseAnnotationStm : P MarkedStm := do
+  let a ← parseSingleAnnotation
+  pure { node := .annotation a, span := a.span }
+
 partial def parseErrorStm : P MarkedStm := do
   let kwTok ← expectKindTokMsg (only .kwError) "expected 'error'"
   let _ ← expectKindTokMsg (only .lParen) "expected '(' after error"
@@ -428,13 +475,13 @@ partial def parseNonSimpleStm : P MarkedStm :=
     <|> parseWhileStm
     <|> parseForStm
     <|> parseReturnStm
+    <|> parseAnnotationStm
     <|> parseAssertStm
     <|> parseErrorStm)
 
 partial def parseStm : P MarkedStm :=
   withErrorMessage "while parsing statement" <|
     (parseNonSimpleStm <|> parseSimpleStm)
-
 end
 
 def parseTypedef : P GDecl := do
@@ -450,15 +497,19 @@ def parseParam : P Param := do
   pure (tau, paramName)
 
 def parseFdecl : P GDecl := do
+  let annosRev ← Parser.foldl (fun acc anno => anno :: acc) [] parseSingleAnnotation
+  let annotations := annosRev.reverse.map (fun a => ({ node := .annotation a, span := a.span } : MarkedStm))
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function declaration"
   let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function declaration"
   let _ ← expectKindTokMsg (only .semicolon) "expected ';' after function declaration"
-  pure (.fdecl tau fname params)
+  pure (.fdecl tau fname params annotations)
 
 def parseFdefn : P GDecl := do
+  let annosRev ← Parser.foldl (fun acc anno => anno :: acc) [] parseSingleAnnotation
+  let annotations := annosRev.reverse.map (fun a => ({ node := .annotation a, span := a.span } : MarkedStm))
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function definition"
@@ -467,7 +518,7 @@ def parseFdefn : P GDecl := do
   let _ ← expectKindTokMsg (only .lBrace) "expected '{' to start function body"
   let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
   let _ ← expectKindTokMsg (only .rBrace) "expected '}' to close function body"
-  pure (.fdefn tau fname params stms)
+  pure (.fdefn tau fname params stms annotations)
 
 def parseGdecl : P GDecl :=
   withErrorMessage "while parsing global declaration" <|
