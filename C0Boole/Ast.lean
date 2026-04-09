@@ -5,7 +5,9 @@ See C0 reference manual here: https://c0.cs.cmu.edu/docs/c0-reference.pdf
 
 Author: Chris Su <chrjs@cmu.edu>
 -/
-import C0Boole.SrcSpan
+import C0Boole.Utils.SrcSpan
+
+open C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Ast
 
@@ -48,12 +50,15 @@ inductive UnOp where
   | negative
   | incr
   | decr
-deriving BEq, DecidableEq
+deriving BEq, DecidableEq, Inhabited
 
 inductive Tau where
   | int
+  | char
+  | string
   | bool
   | void
+deriving Inhabited
 
 mutual
 inductive Expr where
@@ -110,11 +115,12 @@ inductive Stm where
   | error (e : MarkedExpr)
   | nop
   | annotation (a : MarkedAnno)
+deriving Inhabited
 
 structure MarkedStm where
   node : Stm
   span : Option SrcSpan
-
+deriving Inhabited
 end
 
 abbrev Param := Tau × String
@@ -123,6 +129,7 @@ inductive GDecl where
   | fdecl (retType : Tau) (fname : String) (params : List Param) (annotations : List MarkedStm)
   | fdefn (retType : Tau) (fname : String) (params : List Param) (body : List MarkedStm) (annotations : List MarkedStm)
   | typedef (type : Tau) (alias : String)
+deriving Inhabited
 
 abbrev Program := List GDecl
 
@@ -169,6 +176,8 @@ def ppUnOp : UnOp → String
   | .decr => "--"
 
 def ppTau : Tau → String
+  | .string => "string"
+  | .char => "char"
   | .int => "int"
   | .bool => "bool"
   | .void => "void"

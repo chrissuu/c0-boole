@@ -14,11 +14,14 @@ Author: Chris Su <chrjs@cmu.edu>
 import Parser
 import C0Boole.Ast
 import C0Boole.Lexer
+import C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Parse
+
 open Parser
 open C0Boole
 open C0Boole.Ast
+open C0Boole.Utils.SrcSpan
 
 abbrev Tok := C0Boole.Lexer.Token
 abbrev TokStream := Parser.Stream.OfList Tok

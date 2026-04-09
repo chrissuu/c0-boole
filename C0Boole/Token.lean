@@ -1,4 +1,6 @@
-import C0Boole.SrcSpan
+import C0Boole.Utils.SrcSpan
+
+open C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Token
 

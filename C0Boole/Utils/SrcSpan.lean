@@ -1,6 +1,5 @@
-namespace C0Boole
+namespace C0Boole.Utils.SrcSpan
 
-/-- Useful helpers. -/
 def tabWidth : Nat := 4
 
 /-- Location in a source file. -/
@@ -38,4 +37,4 @@ def spanCover3Opt (s1? s2? s3? : Option SrcSpan) : Option SrcSpan :=
 def spanCover4Opt (s1? s2? s3? s4? : Option SrcSpan) : Option SrcSpan :=
   spanCoverOpt (spanCover3Opt s1? s2? s3?) s4?
 
-end C0Boole
+end C0Boole.Utils.SrcSpan

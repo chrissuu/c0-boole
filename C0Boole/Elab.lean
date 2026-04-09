@@ -22,8 +22,10 @@ Author: Chris Su <chrjs@cmu.edu>
 -/
 
 import C0Boole.Ast
-open C0Boole
+import C0Boole.Utils.SrcSpan
+
 open C0Boole.Ast
+open C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Elab
 partial def countUnopOfType (acc : Nat) (type : UnOp) (mexp : MarkedExpr) :=
@@ -134,6 +136,7 @@ def elabGDecl (gdecl : GDecl) : GDecl :=
     .fdefn retType fname params (List.map elabMStm body) (List.map elabMStm annotations)
   | _ => gdecl
 
+-- TODO: write a pass which converts typedefs using an env
 def elabProgram (program : Ast.Program) : Except String Ast.Program :=
   .ok (List.map elabGDecl program)
 

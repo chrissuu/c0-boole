@@ -11,10 +11,12 @@ to the lexer library.
 Author: Chris Su <chrjs@cmu.edu>
 -/
 import Std
-import C0Boole.SrcSpan
 import C0Boole.Token
+import C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Lexer
+
+open C0Boole.Utils.SrcSpan
 
 abbrev TokenKind := C0Boole.Token.TokenKind
 abbrev Token := C0Boole.Token.Token
