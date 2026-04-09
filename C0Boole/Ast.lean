@@ -5,12 +5,14 @@ See C0 reference manual here: https://c0.cs.cmu.edu/docs/c0-reference.pdf
 
 Author: Chris Su <chrjs@cmu.edu>
 -/
-import C0Boole.SrcSpan
+import C0Boole.Utils.SrcSpan
 
-namespace C0Boole
+open C0Boole.Utils.SrcSpan
+
+namespace C0Boole.Ast
 
 inductive AssignOp where
-  | assign -- assignment
+  | assign     -- assignment
   | plusEq     -- +=
   | subEq      -- -=
   | mulEq      -- *=
@@ -41,6 +43,7 @@ inductive BinOp where
   | bitOr
   | shl
   | shr
+deriving Inhabited
 
 inductive UnOp where
   | bang
@@ -48,11 +51,15 @@ inductive UnOp where
   | negative
   | incr
   | decr
+deriving BEq, DecidableEq, Inhabited
 
 inductive Tau where
   | int
+  | char
+  | string
   | bool
   | void
+deriving Inhabited
 
 mutual
 inductive Expr where
@@ -60,13 +67,31 @@ inductive Expr where
   | intLit (val : Int32)
   | binop (op : BinOp) (lhs : MarkedExpr) (rhs : MarkedExpr)
   | unop (op : UnOp) (operand : MarkedExpr)
-  | ternary (test : MarkedExpr) (thenBranch : MarkedExpr) (elseBranch : MarkedExpr)
+  | ternary (test : MarkedExpr) (thenVal : MarkedExpr) (elseVal : MarkedExpr)
   | trueLit
   | falseLit
+  | charLit (char : Char)
+  | stringLit (string : String)
   | call (fname : String) (args : List MarkedExpr)
+  | length (arrayLike : MarkedExpr)
+  | result
+  | hastag
 
 structure MarkedExpr where
   node : Expr
+  span : Option SrcSpan
+
+end
+
+mutual
+inductive Anno where
+  | requires (precondition : MarkedExpr)
+  | ensures (postcondition : MarkedExpr)
+  | asserts (e : MarkedExpr)
+  | loopInvariant (e : MarkedExpr)
+
+structure MarkedAnno where
+  node : Anno
   span : Option SrcSpan
 
 end
@@ -90,19 +115,22 @@ inductive Stm where
   | assert (test : MarkedExpr)
   | error (e : MarkedExpr)
   | nop
+  | annotation (a : MarkedAnno)
+deriving Inhabited
 
 structure MarkedStm where
   node : Stm
   span : Option SrcSpan
-
+deriving Inhabited
 end
 
 abbrev Param := Tau × String
 
 inductive GDecl where
-  | fdecl (retType : Tau) (fname : String) (params : List Param)
-  | fdefn (retType : Tau) (fname : String) (params : List Param) (body : List MarkedStm)
+  | fdecl (retType : Tau) (fname : String) (params : List Param) (annotations : List MarkedStm)
+  | fdefn (retType : Tau) (fname : String) (params : List Param) (body : List MarkedStm) (annotations : List MarkedStm)
   | typedef (type : Tau) (alias : String)
+deriving Inhabited
 
 abbrev Program := List GDecl
 
@@ -149,6 +177,8 @@ def ppUnOp : UnOp → String
   | .decr => "--"
 
 def ppTau : Tau → String
+  | .string => "string"
+  | .char => "char"
   | .int => "int"
   | .bool => "bool"
   | .void => "void"
@@ -167,12 +197,13 @@ private def spaces (n : Nat) : String :=
   String.ofList (List.replicate (n * 2) ' ')
 
 mutual
-
 partial def ppExpr : Expr → String
   | .var id => id
   | .intLit n => toString n
   | .trueLit => "true"
   | .falseLit => "false"
+  | .stringLit s => s
+  | .charLit c => toString c
   | .unop op operand =>
       s!"{ppUnOp op}({ppMarkedExpr operand})"
   | .binop op lhs rhs =>
@@ -182,14 +213,26 @@ partial def ppExpr : Expr → String
   | .call fname args =>
       let argsStr := String.intercalate ", " (args.map ppMarkedExpr)
       s!"{fname}({argsStr})"
+  | .length arrayLike => s!"\\length ({ppMarkedExpr arrayLike})"
+  | .result => "\\result"
+  | .hastag => "\\hastag"
 
 partial def ppMarkedExpr (e : MarkedExpr) : String :=
   ppExpr e.node
-
 end
 
 mutual
+def ppAnno : Anno → String
+  | .requires precondition => s!"//@requires ({ppMarkedExpr precondition})"
+  | .ensures postcondition => s!"//@ensures ({ppMarkedExpr postcondition})"
+  | .asserts e => s!"//@asserts ({ppMarkedExpr e})"
+  | .loopInvariant e => s!"//@loop_invariant ({ppMarkedExpr e})"
 
+def ppMarkedAnno (a : MarkedAnno) : String :=
+  ppAnno a.node
+end
+
+mutual
 partial def ppStm : Stm → String
   | .assign id e =>
       s!"{id} = {ppMarkedExpr e};"
@@ -229,9 +272,10 @@ partial def ppStm : Stm → String
   | .asop id op e =>
       s!"{id} {ppAssignOp op} {ppMarkedExpr e};"
 
+  | .annotation a => s!"{ppMarkedAnno a}"
+
 partial def ppMarkedStm (s : MarkedStm) : String :=
   ppStm s.node
-
 end
 
 def ppStms (stms : List MarkedStm) : String :=
@@ -244,22 +288,25 @@ def ppParams (params : List Param) : String :=
   let paramsStr := String.intercalate ", " (params.map ppParam)
   s!"({paramsStr})"
 
+def ppAnnos (annos : List MarkedStm) : String :=
+  let annosStr := String.intercalate ", " (annos.map ppMarkedStm)
+  s!"[{annosStr}]"
+
 def ppGDecl : GDecl → String
   | .typedef tau id =>
       s!"typedef {ppTau tau} {id};"
-  | .fdecl ret id params =>
-      s!"{ppTau ret} {id}{ppParams params};"
-  | .fdefn ret id params stms =>
+  | .fdecl ret id params annotations =>
+      s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params};"
+  | .fdefn ret id params stms annotations =>
       if stms.isEmpty then
-        s!"{ppTau ret} {id}{ppParams params} \{\n}"
+        s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params} \{\n}"
       else
-        s!"{ppTau ret} {id}{ppParams params} \{\n{ppStms stms}}"
+        s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params} \{\n{ppStms stms}}"
 
 def ppProgram (program : Program) : String :=
   String.intercalate "\n\n" (program.map ppGDecl)
 
 mutual
-
 partial def ppStmRaw (indentLevel : Nat) : Stm → String
   | .assign id e =>
       s!"{spaces indentLevel}Assign({id}, {ppMarkedExpr e})"
@@ -288,10 +335,11 @@ partial def ppStmRaw (indentLevel : Nat) : Stm → String
       s!"{spaces indentLevel}Assert({ppMarkedExpr test})"
   | .error e =>
       s!"{spaces indentLevel}Error({ppMarkedExpr e})"
+  | .annotation a =>
+      s!"{spaces indentLevel}Annotation({ppMarkedAnno a})"
 
 partial def ppMarkedStmRaw (indentLevel : Nat) (stm : MarkedStm) : String :=
   ppStmRaw indentLevel stm.node
-
 end
 
 def ppStmsRaw (stms : List MarkedStm) : String :=
@@ -300,10 +348,10 @@ def ppStmsRaw (stms : List MarkedStm) : String :=
 def ppGDeclRaw : GDecl → String
   | .typedef tau id =>
       s!"Typedef({ppTau tau}, {id})"
-  | .fdecl ret id params =>
-      s!"Fdecl({ppTau ret}, {id}, [{String.intercalate ", " (params.map ppParam)}])"
-  | .fdefn ret id params stms =>
-      s!"Fdefn({ppTau ret}, {id}, [{String.intercalate ", " (params.map ppParam)}], [\n{ppStmsRaw stms}\n])"
+  | .fdecl ret id params annotations =>
+      s!"Fdecl({ppTau ret}, {id}, [{String.intercalate ", " (params.map ppParam)}], [{String.intercalate ", " (annotations.map ppMarkedStm)}])"
+  | .fdefn ret id params stms annotations =>
+      s!"Fdefn({ppTau ret}, {id}, [{String.intercalate ", " (params.map ppParam)}], [\n{ppStmsRaw stms}\n], [{String.intercalate ", " (annotations.map ppMarkedStm)}])"
 
 def ppProgramRaw (program : Program) : String :=
   s!"Program:\n{String.intercalate "\n" (program.map ppGDeclRaw)}"
@@ -313,4 +361,4 @@ end Print
 instance : ToString Program where
   toString := Print.ppProgram
 
-end C0Boole
+end C0Boole.Ast

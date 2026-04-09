@@ -11,203 +11,15 @@ to the lexer library.
 Author: Chris Su <chrjs@cmu.edu>
 -/
 import Std
-import C0Boole.SrcSpan
+import C0Boole.Token
+import C0Boole.Utils.SrcSpan
 
 namespace C0Boole.Lexer
-inductive TokenKind where
-  | ident (name : String)
-  | intLit (value : Int)
-  | hexLit (value : String)
-  | stringLit (value : String)
-  | charLit (value : Char)
 
-  -- Core Keywords
-  -- C0 reference, page 16, section 14
-  -- The reserved keywords of the language are:
-  -- int bool string char void struct typedef
-  -- if else while for continue break return assert
-  -- error true false NULL alloc alloc_array
-  | kwInt | kwBool | kwString | kwChar | kwVoid | kwStruct | kwTypedef
-  | kwIf | kwElse | kwWhile | kwFor | kwReturn | kwAssert
-  | kwError | kwTrue | kwFalse | kwNull | kwAlloc | kwAllocArray
-  | kwContinue | kwBreak -- Note: nice to haves
-  | kwUse -- #use (for libraries (& headers?))
+open C0Boole.Utils.SrcSpan
 
-  -- Contracts / Annotations Keywords
-  -- C0 reference, page 18, section 14.3
-  | requires
-  | ensures
-  | loopInvariant
-  | result
-  | length
-  | hastag
-
-  -- Syntax
-  | lParen | rParen     -- ()
-  | lBrace | rBrace     -- {}
-  | lBracket | rBracket -- []
-  | colon | semicolon   -- :;
-  | comma | question    -- ,?
-
-  -- Assignment Operators
-  | assign
-  | plusEq
-  | subEq
-  | mulEq
-  | divEq
-  | modEq
-  | andEq
-  | xorEq
-  | orEq
-  | shlEq
-  | shrEq
-
-  -- Operators
-  | plus
-  | sub
-  | mul
-  | div
-  | mod
-  | lt
-  | lte
-  | gt
-  | gte
-  | eq
-  | neq
-  | land -- &&
-  | lor  -- ||
-  | and  -- &
-  | xor
-  | or   -- |
-  | shl
-  | shr
-
-  | incr -- ++
-  | decr -- --
-
-  | bang     -- !
-  | squiggly -- ~
-  | negative -- -
-
-  | int
-  | bool
-  | void
-  | typedef
-
-  | openMultilineComment -- /*
-  | closeMultilineComment -- */
-  | comment -- //
-
-  | eof
-deriving Repr, BEq, DecidableEq
-
-structure Token where
-  kind : TokenKind
-  span : SrcSpan
-deriving Repr, BEq, DecidableEq
-
-namespace Print
-
-def ppTokenKind : TokenKind → String
-  | .ident name => s!"ident({name})"
-  | .intLit value => s!"intLit({value})"
-  | .hexLit value => s!"hexLit({value})"
-  | .stringLit value => s!"stringLit(\"{value}\")"
-  | .charLit value => s!"charLit('{value}')"
-  | .kwInt => "kwInt"
-  | .kwBool => "kwBool"
-  | .kwString => "kwString"
-  | .kwChar => "kwChar"
-  | .kwVoid => "kwVoid"
-  | .kwStruct => "kwStruct"
-  | .kwTypedef => "kwTypedef"
-  | .kwIf => "kwIf"
-  | .kwElse => "kwElse"
-  | .kwWhile => "kwWhile"
-  | .kwFor => "kwFor"
-  | .kwReturn => "kwReturn"
-  | .kwAssert => "kwAssert"
-  | .kwError => "kwError"
-  | .kwTrue => "kwTrue"
-  | .kwFalse => "kwFalse"
-  | .kwNull => "kwNull"
-  | .kwAlloc => "kwAlloc"
-  | .kwAllocArray => "kwAllocArray"
-  | .kwContinue => "kwContinue"
-  | .kwBreak => "kwBreak"
-  | .kwUse => "kwUse"
-  | .requires => "requires"
-  | .ensures => "ensures"
-  | .loopInvariant => "loopInvariant"
-  | .result => "result"
-  | .length => "length"
-  | .hastag => "hastag"
-  | .lParen => "lParen"
-  | .rParen => "rParen"
-  | .lBrace => "lBrace"
-  | .rBrace => "rBrace"
-  | .lBracket => "lBracket"
-  | .rBracket => "rBracket"
-  | .colon => "colon"
-  | .semicolon => "semicolon"
-  | .comma => "comma"
-  | .question => "question"
-  | .assign=> "assign"
-  | .plusEq => "plusEq"
-  | .subEq => "subEq"
-  | .mulEq => "mulEq"
-  | .divEq => "divEq"
-  | .modEq => "modEq"
-  | .andEq => "andEq"
-  | .xorEq => "xorEq"
-  | .orEq => "orEq"
-  | .shlEq => "shlEq"
-  | .shrEq => "shrEq"
-  | .plus => "plus"
-  | .sub => "sub"
-  | .mul => "mul"
-  | .div => "div"
-  | .mod => "mod"
-  | .lt => "lt"
-  | .lte => "lte"
-  | .gt => "gt"
-  | .gte => "gte"
-  | .eq => "eq"
-  | .neq => "neq"
-  | .land => "land"
-  | .lor => "lor"
-  | .and => "and"
-  | .xor => "xor"
-  | .or => "or"
-  | .shl => "shl"
-  | .shr => "shr"
-  | .incr => "incr"
-  | .decr => "decr"
-  | .bang => "bang"
-  | .squiggly => "squiggly"
-  | .negative => "negative"
-  | .int => "int"
-  | .bool => "bool"
-  | .void => "void"
-  | .typedef => "typedef"
-  | .openMultilineComment => "openMultilineComment"
-  | .closeMultilineComment => "closeMultilineComment"
-  | .comment => "comment"
-  | .eof => "eof"
-
-def ppToken (t : Token) : String :=
-  s!"{ppTokenKind t.kind} @ {t.span.show}"
-
-def ppTokens (tokens : List Token) : String :=
-  String.intercalate "\n" (tokens.map ppToken)
-
-end Print
-
-instance : ToString TokenKind where
-  toString := Print.ppTokenKind
-
-instance : ToString Token where
-  toString := Print.ppToken
+abbrev TokenKind := C0Boole.Token.TokenKind
+abbrev Token := C0Boole.Token.Token
 
 def tokenKindOptionOfString : String → Option TokenKind
   -- Static lexemes only. Dynamic lexemes (identifiers, literals) return `none`.
@@ -233,9 +45,9 @@ def tokenKindOptionOfString : String → Option TokenKind
   | "continue" => some .kwContinue
   | "break" => some .kwBreak
   | "#use" => some .kwUse
-  | "\\requires" => some .requires
-  | "\\ensures" => some .ensures
-  | "\\loop_invariant" => some .loopInvariant
+  | "requires" => some .requires
+  | "ensures" => some .ensures
+  | "loop_invariant" => some .loopInvariant
   | "\\result" => some .result
   | "\\length" => some .length
   | "#" => some .hastag
@@ -284,11 +96,11 @@ def tokenKindOptionOfString : String → Option TokenKind
   | "~" => some .squiggly
   | "/*" => some .openMultilineComment
   | "*/" => some .closeMultilineComment
+  | "//@" => some .annotation
+  | "/*@" => some .openMultilineAnnotation
+  | "@*/" => some .closeMultilineAnnotation
   | "//" => some .comment
   | _ => none
-
-def marker (fileName : String) (lineNumber : Nat) (leftCol : Nat) (rightCol : Nat) : SrcSpan :=
-  SrcSpan.mk (SrcLoc.mk lineNumber leftCol) (SrcLoc.mk lineNumber rightCol) (fileName)
 
 /--
 Maximal Munch Lexer
@@ -306,7 +118,6 @@ integer     ::= ("0" | ['1'-'9'](['0'-'9']*))
 hexadecimal ::= "0"['x' 'X']['0'-'9' 'a'-'f' 'A'-'F']+
 ws          ::= [' ' '\t' '\r' '\011' '\012']
 -/
-
 
 def isHexLitSeed c := c == '0'
 
@@ -348,14 +159,13 @@ def matchHexLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
       some (s.take consumed)
 
 -- integer ::= ("0" | ['1'-'9'](['0'-'9']*))
-def matchIntLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
-  if sliceLength == 1 then
-    if s.isNat then some s else none
-  else if s.startsWith "0" then none
+def matchIntLit (s : String.Slice) (_ : Nat) : Option String.Slice :=
+  let digits := s.takeWhile Char.isDigit
+  if digits.isEmpty then none
   else
-    let digits := s.takeWhile Char.isDigit
-    if digits.isEmpty then none
-    else some digits
+    match digits.front with
+    | '0' => if digits.positions.length == 1 then digits else none
+    | _ => digits
 
 def isIdentChar (c : Char) : Bool :=
   c == '_' || c.isAlphanum
@@ -410,13 +220,19 @@ def matchCharLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
       else if close.toString != "'" then none
       else some (s.take 3)
 
-/-- Matches for the two types of supported comments: // until first \n or \r; /* ... */, which can span multiline -/
+/-- Matches regular comments only:
+`// ...` until first `\n` or `\r`, and `/* ... */` (possibly multiline).
+Annotation forms (`//@ ...` and `/*@ ... @*/`) are intentionally excluded. -/
 def matchComment (s : String.Slice) (_ : Nat) : Option String.Slice :=
-  if s.startsWith "//" then
+  if s.startsWith "//@" then
+    none
+  else if s.startsWith "//" then
     let body := s.drop 2
     let commentBody := body.takeWhile (fun c => c != '\n' && c != '\r')
     let consumed := 2 + commentBody.toString.length
     some (s.take consumed)
+  else if s.startsWith "/*@" then
+    none
   else if s.startsWith "/*" then
     match (s.drop 2).find? "*/" with
     | none => none
@@ -430,6 +246,7 @@ def matchComment (s : String.Slice) (_ : Nat) : Option String.Slice :=
 
 def staticTokenLexemes : List String :=
   [
+    "/*@", "//@", "@*/",
     "<<=", ">>=",
     "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=",
     "<=", ">=", "==", "!=", "&&", "||", "<<", ">>", "++", "--",
@@ -447,24 +264,6 @@ def getMatchesAndMaximalMatch (s : String.Slice) : List String.Slice × Option S
   |> List.filterMap id
   let maximalMatch := List.maxOn? (λ x => x.positions.length) patternMatches
   (patternMatches, maximalMatch)
-
-structure WhiteSpaceInfo where
-  numTabs : Nat     -- \t
-  numCarRet : Nat   -- \r
-  numNewlines : Nat -- \n
-  numCrlf : Nat     -- \r\n
-
-def countWhiteSpaceType (s : String.Slice) : WhiteSpaceInfo :=
-  let numTabs := (s.split "\t").length - 1
-  let numCarRet := (s.split "\r").length - 1
-  let numNewlines := (s.split "\n").length - 1
-  let numCrlf := (s.split "\r\n").length - 1
-
-  { numTabs := numTabs
-  , numCarRet := numCarRet - numCrlf -- subtract to avoid double counting
-  , numNewlines := numNewlines - numCrlf
-  , numCrlf := numCrlf
-  }
 
 def isWhitespace (c : Char) : Bool :=
   c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\u000B' || c == '\u000C'

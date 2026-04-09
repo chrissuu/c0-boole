@@ -1,0 +1,26 @@
+namespace C0Boole.Utils.Temp
+
+structure Temp where
+  name : String
+deriving Repr, DecidableEq, Inhabited
+
+abbrev TempCounter := Nat
+
+def TempCounter.bump tc :=
+  tc + 1
+
+def Temp.create (tc : TempCounter) : Temp :=
+  { name := s!"t{tc}" }
+
+def Temp.createNamed (tc : TempCounter) (name : String): Temp :=
+  { name := s!"t{tc}_{name}" }
+
+def Temp.bumpAndCreate (tc : TempCounter) : Temp × TempCounter :=
+  let tc' := TempCounter.bump tc
+  ({ name := s!"t{tc'}" }, tc')
+
+def Temp.bumpAndCreateNamed (tc : TempCounter) (name : String) : Temp × TempCounter :=
+  let tc' := TempCounter.bump tc
+  ({ name := s!"t{tc'}_{name}" }, tc')
+
+end C0Boole.Utils.Temp
