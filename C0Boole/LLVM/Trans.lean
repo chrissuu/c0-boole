@@ -1,13 +1,13 @@
 import C0Boole.Ast
-import C0Boole.Tree
+import C0Boole.LLVM.Tree
 import C0Boole.Utils.Label
 import C0Boole.Utils.Temp
 
 import Std.Data.HashMap
 
-namespace C0Boole.Tree.Trans
+namespace C0Boole.LLVM.Tree.Trans
 open C0Boole.Ast
-open C0Boole.Tree
+open C0Boole.LLVM.Tree
 open C0Boole.Utils.Label
 open C0Boole.Utils.Temp
 
@@ -19,7 +19,7 @@ structure Env where
   tc : TempCounter
   lc : LabelCounter
 
-def translateBinop (op: Ast.BinOp) : Tree.BinOp :=
+def translateBinOp (op: Ast.BinOp) : Tree.BinOp :=
   match op with
   | .plus => .plus
   | .sub => .sub
@@ -32,13 +32,14 @@ def translateBinop (op: Ast.BinOp) : Tree.BinOp :=
   | .gte => .gte
   | .eq => .eq
   | .neq => .neq
-  | .land => .land
-  | .lor => .lor
   | .bitAnd => .bitAnd
   | .xor => .xor
   | .bitOr => .bitOr
   | .shl => .shl
   | .shr => .shr
+
+  | .land => panic! "[Error] land (&&) should have been elaborated away but found in translate_binop"
+  | .lor => panic! "[Error] lor (||) should have been elaborated away but found in translate_binop"
 
 partial def translateExpr
   (mexpr : Ast.MarkedExpr)
@@ -58,26 +59,28 @@ partial def translateExpr
 
   | .binop op lhs rhs =>
     let (tempRes, tc') := Temp.bumpAndCreate tc
-    let (cmdsLhs, transLhs, env', tc'', lc') := translate_expr lhs env tc' lc
-    let (cmdsRhs, transRhs, env'', tc''', lc'') := translate_expr rhs env' tc'' lc'
+    let (cmdsLhs, transLhs, env', tc'', lc') := translateExpr lhs env tc' lc
+    let (cmdsRhs, transRhs, env'', tc''', lc'') := translateExpr rhs env' tc'' lc'
 
-    (cmdsLhs ++ cmdsRhs ++ [.move tempRes (.binop (translate_binop op) transLhs transRhs)]
+    (cmdsLhs ++ cmdsRhs ++ [.move tempRes (.binop (translateBinOp op) transLhs transRhs)]
     , .temp tempRes
     , env''
     , tc'''
     , lc'')
 
   -- TODO: we can consider having a new type for Elaborated AST, which would remove this case
-  | .unop _ _ => panic! "[Error] unops should have been elaborated away but found in translate_expr"
+  | .unop _ _ => panic! "[Error] unops should have been elaborated away but found in translateExpr"
 
-  | .ternary test thenBranch elseBranch =>
+
+  -- TODO: LLVM supports select. is this really something we want to elaborate?
+  | .ternary test thenVal elseVal =>
     let (tempRes, tc') := Temp.bumpAndCreate tc
-    let (cmdsTest, transTest, env', tc'', lc') := translate_expr test env tc' lc
+    let (cmdsTest, transTest, env', tc'', lc') := translateExpr test env tc' lc
     let (labelThen, lc'') := Label.bumpAndCreate lc'
     let (labelElse, lc''') := Label.bumpAndCreate lc''
 
-    let (cmdsThen, transThen, env'', tc''', lc''') := translate_expr thenBranch env' tc'' lc'''
-    let (cmdsElse, transElse, env''', tc'''', lc'''') := translate_expr elseBranch env'' tc''' lc'''
+    let (cmdsThen, transThen, env'', tc''', lc''') := translateExpr thenVal env' tc'' lc'''
+    let (cmdsElse, transElse, env''', tc'''', lc'''') := translateExpr elseVal env'' tc''' lc'''
 
     (cmdsTest
     ++ [.ite transTest labelThen labelElse]
@@ -103,7 +106,7 @@ partial def translateExpr
   | .call fname args =>
     let (argCmds, argExps, env', tc', lc') := List.foldr
       (λ arg (cmdsAcc, expsAcc, envAcc, tcAcc, lcAcc) =>
-        let (cmds, exp, env'', tc''', lc'') := translate_expr arg envAcc tcAcc lcAcc
+        let (cmds, exp, env'', tc''', lc'') := translateExpr arg envAcc tcAcc lcAcc
         (cmds ++ cmdsAcc, exp :: expsAcc, env'', tc''', lc'')
       )
       ([], [], env, tc, lc)
@@ -125,7 +128,7 @@ partial def translateStm
   : List Tree.Command × TempEnv × TempCounter × LabelCounter :=
   match mstm.node with
   | .assign varName val =>
-    let (cmds, expr, env', tc', lc') := translate_expr val env tc lc
+    let (cmds, expr, env', tc', lc') := translateExpr val env tc lc
     match env.get? varName with
     | some temp => (cmds ++ [.move temp expr], env', tc', lc')
     | none =>
@@ -133,9 +136,9 @@ partial def translateStm
       (cmds ++ [.move temp expr], env', tc', lc')
 
   | .ifLit test thenBranch elseBranch =>
-    let (cmdsTest, transTest, env', tc', lc') := translate_expr test env tc lc
-    let (cmdsThen, env'', tc'', lc'') := translate_stm thenBranch env' tc' lc'
-    let (cmdsElse, env''', tc''', lc''') := translate_stm elseBranch env'' tc'' lc''
+    let (cmdsTest, transTest, env', tc', lc') := translateExpr test env tc lc
+    let (cmdsThen, env'', tc'', lc'') := translateStm thenBranch env' tc' lc'
+    let (cmdsElse, env''', tc''', lc''') := translateStm elseBranch env'' tc'' lc''
 
     let (labelThen, lc'''') := Label.bumpAndCreate lc'''
     let (labelElse, lc''''') := Label.bumpAndCreate lc''''
@@ -152,8 +155,8 @@ partial def translateStm
     )
 
   | .whileLit test body =>
-    let (cmdsTest, transTest, env', tc', lc') := translate_expr test env tc lc
-    let (cmdsBody, env'', tc'', lc'') := translate_stm body env' tc' lc'
+    let (cmdsTest, transTest, env', tc', lc') := translateExpr test env tc lc
+    let (cmdsBody, env'', tc'', lc'') := translateStm body env' tc' lc'
 
     let (labelGuard, lc''') := Label.bumpAndCreate lc''
     let (labelDone, lc'''') := Label.bumpAndCreate lc'''
@@ -169,14 +172,14 @@ partial def translateStm
   | .ret valOpt =>
     match valOpt with
     | some retVal =>
-      let (cmdsRetVal, transRetVal, env', tc', lc') := translate_expr retVal env tc lc
+      let (cmdsRetVal, transRetVal, env', tc', lc') := translateExpr retVal env tc lc
       (cmdsRetVal ++ [.ret (some transRetVal)], env', tc', lc')
     | none => ([.ret none], env, tc, lc)
 
 
   | .seq first rest =>
-    let (cmdsFirst, env', tc', lc') := translate_stm first env tc lc
-    let (cmdsRest, env'', tc'', lc'') := translate_stm rest env' tc' lc'
+    let (cmdsFirst, env', tc', lc') := translateStm first env tc lc
+    let (cmdsRest, env'', tc'', lc'') := translateStm rest env' tc' lc'
 
     (cmdsFirst ++ cmdsRest
     , env''
@@ -186,18 +189,18 @@ partial def translateStm
   -- TODO: weave in type info into TempEnv
   | .declare varName _ value =>
     let (temp, tc') := Temp.bumpAndCreate tc
-    let (cmdsValue, env', tc'', lc') := translate_stm value env tc' lc
+    let (cmdsValue, env', tc'', lc') := translateStm value env tc' lc
     (cmdsValue, env'.insert varName temp, tc'', lc')
 
   | .defn varName _ =>
     let (temp, tc') := Temp.bumpAndCreate tc
     ([], env.insert varName temp, tc', lc)
 
-  | .asop _ _ _ => panic! "[Error] asops should have been elaborated away but found in translate_stm"
-  | .forLit _ _ _ _ => panic! "[Error] for should have been elaborated away but found in translate_stm"
+  | .asop _ _ _ => panic! "[Error] asops should have been elaborated away but found in translateStm"
+  | .forLit _ _ _ _ => panic! "[Error] for should have been elaborated away but found in translateStm"
 
   | .expr mexpr =>
-    let (cmds, _, env', tc', lc') := translate_expr mexpr env tc lc
+    let (cmds, _, env', tc', lc') := translateExpr mexpr env tc lc
     (cmds, env', tc', lc')
 
   | .nop => ([], env, tc, lc)
@@ -212,28 +215,28 @@ def translateTau : Ast.Tau → Tree.Tau
   | .string => panic! "[Error] strings are not yet handled"
   | .void => .void
 
-def translateParam (param : Ast.Param) : Tree.Param :=
+def translateParam (param : Ast.Param) : Tree.Arg :=
   let (tau, varName) := param
-  (translate_tau tau, varName)
+  (translateTau tau, varName)
 
 def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
   match gdecl with
-  | .fdecl _ _ _ _ => panic! "[Error] fdecls should have been elaborated away but found in translate_gdecl"
-  | .typedef _ _ => panic! "[Error] typedefs should have been elaborated away but found in translate_gdecl"
+  | .fdecl _ _ _ _ => panic! "[Error] fdecls should have been elaborated away but found in translateGdecl"
+  | .typedef _ _ => panic! "[Error] typedefs should have been elaborated away but found in translateGdecl"
   | .fdefn retType fname params body _ =>
     let (cmds, _, _, _) := (List.foldl
       (λ (cmdsAcc, envAcc, tcAcc, lcAcc) mstm =>
-        let (cmds, env', tc', lc') := translate_stm mstm envAcc tcAcc lcAcc
+        let (cmds, env', tc', lc') := translateStm mstm envAcc tcAcc lcAcc
         (cmdsAcc ++ cmds, env', tc', lc')
       )
       ([], {}, 0, 0)
       body)
     (fname
-    , translate_tau retType
-    , List.map translate_param params
+    , translateTau retType
+    , List.map translateParam params
     , cmds)
 
 def translate (program : Ast.Program) : Tree.Program :=
-  List.map translate_gdecl program
+  List.map translateGdecl program
 
-end C0Boole.Tree.Trans
+end C0Boole.LLVM.Tree.Trans

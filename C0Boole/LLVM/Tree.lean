@@ -3,14 +3,12 @@ Tree Representation
 
 See C0 reference manual here: https://c0.cs.cmu.edu/docs/c0-reference.pdf
 
-This is the lowest IR before emitting LLVM.
-
 Author: Chris Su <chrjs@cmu.edu>
 -/
 import C0Boole.Utils.Temp
 import C0Boole.Utils.Label
 
-namespace C0Boole.Tree
+namespace C0Boole.LLVM.Tree
 
 open C0Boole.Utils.Temp
 open C0Boole.Utils.Label
@@ -28,13 +26,12 @@ inductive BinOp where
   | gte
   | eq
   | neq
-  | land
-  | lor
   | bitAnd
   | xor
   | bitOr
   | shl
   | shr
+deriving Inhabited
 
 inductive Expr where
   | const (val : Int32)
@@ -56,8 +53,9 @@ inductive Tau where
   | void
 deriving Inhabited
 
-abbrev Param := Tau × String
-abbrev FunctionDef := String × Tau × List Param × List Command
+abbrev VarName := String
+abbrev Arg := Tau × VarName
+abbrev FunctionDef := String × Tau × List Arg × List Command
 abbrev Program := List FunctionDef
 
 namespace Print
@@ -74,8 +72,6 @@ def ppBinOp : BinOp → String
   | .gte => ">="
   | .eq => "=="
   | .neq => "!="
-  | .land => "&&"
-  | .lor => "||"
   | .bitAnd => "&"
   | .xor => "^"
   | .bitOr => "|"
@@ -86,8 +82,8 @@ def ppTau : Tau → String
   | .int => "int"
   | .void => "void"
 
-def ppParam (param : Param) : String :=
-  let (tau, varName) := param
+def ppArg (arg : Arg) : String :=
+  let (tau, varName) := arg
   s!"{ppTau tau} {varName}"
 
 partial def ppExpr : Expr → String
@@ -108,8 +104,8 @@ def ppCommand : Command → String
       | none => "return;"
 
 def ppFunctionDef (fdef : FunctionDef) : String :=
-  let (fname, tau, params, commands) := fdef
-  s!"{ppTau tau} {fname}({String.intercalate ", " (List.map ppParam params)}){String.intercalate "\n" (List.map ppCommand commands)}"
+  let (fname, tau, args, commands) := fdef
+  s!"{ppTau tau} {fname}({String.intercalate ", " (List.map ppArg args)}){String.intercalate "\n" (List.map ppCommand commands)}"
 
 def ppProgram (program : Program) : String :=
   String.intercalate "\n" (program.map ppFunctionDef)
@@ -128,4 +124,4 @@ instance : ToString Command where
 instance : ToString Program where
   toString := Print.ppProgram
 
-end C0Boole.Tree
+end C0Boole.LLVM.Tree
