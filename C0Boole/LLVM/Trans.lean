@@ -19,7 +19,7 @@ structure Env where
   tc : TempCounter
   lc : LabelCounter
 
-def translate_binop (op: Ast.BinOp) : Tree.BinOp :=
+def translateBinop (op: Ast.BinOp) : Tree.BinOp :=
   match op with
   | .plus => .plus
   | .sub => .sub
@@ -40,7 +40,7 @@ def translate_binop (op: Ast.BinOp) : Tree.BinOp :=
   | .shl => .shl
   | .shr => .shr
 
-partial def translate_expr
+partial def translateExpr
   (mexpr : Ast.MarkedExpr)
   (env : Std.HashMap String Temp)
   (tc : TempCounter)
@@ -117,7 +117,7 @@ partial def translate_expr
   | .hastag => ([], .const 0, env, tc, lc)
   | .stringLit _ => ([], .const 0, env, tc, lc)
 
-partial def translate_stm
+partial def translateStm
   (mstm : Ast.MarkedStm)
   (env : Std.HashMap String Temp)
   (tc : TempCounter)
@@ -207,16 +207,16 @@ partial def translate_stm
   | .error _ => panic! "[Error] unimplemented (error)"
   | .annotation _ => panic! "[Error] unimplemented (annotation)"
 
-def translate_tau : Ast.Tau → Tree.Tau
+def translateTau : Ast.Tau → Tree.Tau
   | .int | .char | .bool => .int
   | .string => panic! "[Error] strings are not yet handled"
   | .void => .void
 
-def translate_param (param : Ast.Param) : Tree.Param :=
+def translateParam (param : Ast.Param) : Tree.Param :=
   let (tau, varName) := param
   (translate_tau tau, varName)
 
-def translate_gdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
+def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
   match gdecl with
   | .fdecl _ _ _ _ => panic! "[Error] fdecls should have been elaborated away but found in translate_gdecl"
   | .typedef _ _ => panic! "[Error] typedefs should have been elaborated away but found in translate_gdecl"

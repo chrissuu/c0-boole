@@ -2,11 +2,9 @@ namespace C0Boole.Utils.Label
 
 structure Label where
   name : String
-deriving Repr, DecidableEq
+deriving Repr, DecidableEq, Inhabited
 
 abbrev LabelCounter := Nat
-
-def LabelCounter.mk : Unit := 0
 
 def LabelCounter.bump lc :=
   lc + 1
