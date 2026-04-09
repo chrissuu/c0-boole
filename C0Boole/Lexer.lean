@@ -159,14 +159,13 @@ def matchHexLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
       some (s.take consumed)
 
 -- integer ::= ("0" | ['1'-'9'](['0'-'9']*))
-def matchIntLit (s : String.Slice) (sliceLength : Nat) : Option String.Slice :=
-  if sliceLength == 1 then
-    if s.isNat then some s else none
-  else if s.startsWith "0" then none
+def matchIntLit (s : String.Slice) (_ : Nat) : Option String.Slice :=
+  let digits := s.takeWhile Char.isDigit
+  if digits.isEmpty then none
   else
-    let digits := s.takeWhile Char.isDigit
-    if digits.isEmpty then none
-    else some digits
+    match digits.front with
+    | '0' => if digits.positions.length == 1 then digits else none
+    | _ => digits
 
 def isIdentChar (c : Char) : Bool :=
   c == '_' || c.isAlphanum

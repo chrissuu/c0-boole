@@ -43,6 +43,7 @@ inductive BinOp where
   | bitOr
   | shl
   | shr
+deriving Inhabited
 
 inductive UnOp where
   | bang
@@ -66,7 +67,7 @@ inductive Expr where
   | intLit (val : Int32)
   | binop (op : BinOp) (lhs : MarkedExpr) (rhs : MarkedExpr)
   | unop (op : UnOp) (operand : MarkedExpr)
-  | ternary (test : MarkedExpr) (thenBranch : MarkedExpr) (elseBranch : MarkedExpr)
+  | ternary (test : MarkedExpr) (thenVal : MarkedExpr) (elseVal : MarkedExpr)
   | trueLit
   | falseLit
   | charLit (char : Char)
