@@ -159,15 +159,19 @@ partial def translateStm
     let (cmdsBody, env'', tc'', lc'') := translateStm body env' tc' lc'
 
     let (labelGuard, lc''') := Label.bumpAndCreate lc''
-    let (labelDone, lc'''') := Label.bumpAndCreate lc'''
+    let (labelBody, lc'''') := Label.bumpAndCreate lc'''
+    let (labelDone, lc''''') := Label.bumpAndCreate lc''''
 
     ([.label labelGuard]
-    ++ cmdsBody
     ++ cmdsTest
-    ++ [.ite transTest labelGuard labelDone]
+    ++ [.ite transTest labelBody labelDone]
+    ++ [.label labelBody]
+    ++ cmdsBody
+    ++ [.goto labelGuard]
+    ++ [.label labelDone]
     , env''
     , tc''
-    , lc'''')
+    , lc''''')
 
   | .ret valOpt =>
     match valOpt with
