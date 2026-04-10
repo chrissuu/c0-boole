@@ -566,7 +566,7 @@ def parseFdefn : P GDecl := do
   let _ ← expectKindTokMsg (only .lBrace) "expected '{' to start function body"
   let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
   let _ ← expectKindTokMsg (only .rBrace) "expected '}' to close function body"
-  pure (.fdefn tau fname params stms annotations)
+  pure (.fdefn tau fname params (List.reverse stms) annotations)
 
 def parseGdecl : P GDecl :=
   withErrorMessage "while parsing global declaration" <|
