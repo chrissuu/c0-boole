@@ -40,7 +40,7 @@ def emitFEvals (args : List IR.Expr) : String :=
 
 def emitVal : IR.Expr → String
   | .bitVec bv => toString (Int32.ofInt (bv.toInt))
-  | .var t => t.name
+  | .var t => s!"%{t.name}"
   | .binop op tau lhs rhs =>
     s!"{emitBinOp op} {emitTau tau} {emitVal lhs} {emitVal rhs}"
   | .call tau fname args =>
@@ -80,7 +80,7 @@ def emitFdefn (fdefn : IR.FunctionDef) : String :=
         if indent then "\t" ++ rawEmitStm else rawEmitStm)
       |> String.intercalate "\n"
 
-  "define {emitTau tau} "
+  s!"define {emitTau tau} "
   ++ s!"@{fname}({emitArgs args}) "
   ++ "{"
   ++ "\n"

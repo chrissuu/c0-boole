@@ -30,6 +30,18 @@ abbrev P := SimpleParser TokStream Tok
 instance : Inhabited (P MarkedStm) where
   default := pure { node := .nop, span := none }
 
+instance : Inhabited (P MarkedExpr) where
+  default := pure { node := .trueLit, span := none }
+
+instance : Inhabited (P BinOp) where
+  default := pure .plus
+
+instance : Inhabited (P UnOp) where
+  default := pure .bang
+
+instance : Inhabited (P AssignOp) where
+  default := pure .assign
+
 def mkExpr (node : Expr) : MarkedExpr :=
   { node := node, span := none }
 
@@ -105,7 +117,7 @@ def parseVar : P MarkedExpr := do
   pure { node := .var name, span := sp }
 
 mutual
-def parseParenExpr : P MarkedExpr := do
+partial def parseParenExpr : P MarkedExpr := do
   let lTok ← expectKindTokMsg (fun | .lParen => true | _ => false) "expected '('"
   let e ← parseExpr
   let rTok ← expectKindTokMsg (fun | .rParen => true | _ => false) "expected ')'"
@@ -113,15 +125,17 @@ def parseParenExpr : P MarkedExpr := do
     span := some (spanFromTokenBounds lTok rTok)
   }
 
-def parseAtom : P MarkedExpr :=
+partial def parseAtom : P MarkedExpr :=
   first [
+    parseParenExpr,
     parseIntLit,
     parseBoolLit,
+    parseFCall,
     parseVar,
     throwUnexpectedWithMessage none "expected expression atom"
   ]
 
-def parseUnOp : P UnOp :=
+partial def parseUnOp : P UnOp :=
   satisfyKind (fun
     | .bang => some .bang
     | .squiggly => some .bitNot
@@ -131,26 +145,26 @@ def parseUnOp : P UnOp :=
     | .decr => some .decr
     | _ => none)
 
-def parseMulOp : P BinOp :=
+partial def parseMulOp : P BinOp :=
   satisfyKind (fun
     | .mul => some .mul
     | .div => some .div
     | .mod => some .mod
     | _ => none)
 
-def parseAddOp : P BinOp :=
+partial def parseAddOp : P BinOp :=
   satisfyKind (fun
     | .plus => some .plus
     | .sub  => some .sub
     | _ => none)
 
-def parseShiftOp : P BinOp :=
+partial def parseShiftOp : P BinOp :=
   satisfyKind (fun
     | .shl => some .shl
     | .shr => some .shr
     | _ => none)
 
-def parseCompOp : P BinOp :=
+partial def parseCompOp : P BinOp :=
   satisfyKind (fun
     | .lt  => some .lt
     | .lte => some .lte
@@ -158,38 +172,38 @@ def parseCompOp : P BinOp :=
     | .gte => some .gte
     | _ => none)
 
-def parseEqOp : P BinOp :=
+partial def parseEqOp : P BinOp :=
   satisfyKind (fun
     | .eq  => some .eq
     | .neq => some .neq
     | _ => none)
 
-def parseBitAndOp : P BinOp :=
+partial def parseBitAndOp : P BinOp :=
   satisfyKind (fun
     | .and => some .bitAnd
     | _ => none)
 
-def parseBitXorOp : P BinOp :=
+partial def parseBitXorOp : P BinOp :=
   satisfyKind (fun
     | .xor => some .xor
     | _ => none)
 
-def parseBitOrOp : P BinOp :=
+partial def parseBitOrOp : P BinOp :=
   satisfyKind (fun
     | .or => some .bitOr
     | _ => none)
 
-def parseLandOp : P BinOp :=
+partial def parseLandOp : P BinOp :=
   satisfyKind (fun
     | .land => some .land
     | _ => none)
 
-def parseLorOp : P BinOp :=
+partial def parseLorOp : P BinOp :=
   satisfyKind (fun
     | .lor => some .lor
     | _ => none)
 
-def parseAssignOp : P AssignOp :=
+partial def parseAssignOp : P AssignOp :=
   satisfyKind (fun
     | .assign => some .assign
     | .plusEq => some .plusEq
@@ -204,13 +218,13 @@ def parseAssignOp : P AssignOp :=
     | .shrEq  => some .shrEq
     | _ => none)
 
-def parseUnary : P MarkedExpr := do
+partial def parseUnary : P MarkedExpr := do
   let opsRev ← Parser.foldl (fun acc op => op :: acc) [] parseUnOp
   let ops := opsRev.reverse
   let base ← parseAtom
   pure <| List.foldr (fun op acc => mkExpr (.unop op acc)) base ops
 
-def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
+partial def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
   let lhs ← term
   let restRev ← Parser.foldl (fun acc x => x :: acc) [] do
     let o ← op
@@ -221,37 +235,37 @@ def parseLeftAssoc (term : P MarkedExpr) (op : P BinOp) : P MarkedExpr := do
 
 -- These parsers build on each other through the precedence binding strength of C0
 -- C0 reference, page 20
-def parseMulExpr : P MarkedExpr :=
+partial def parseMulExpr : P MarkedExpr :=
   parseLeftAssoc parseUnary parseMulOp
 
-def parseAddExpr : P MarkedExpr :=
+partial def parseAddExpr : P MarkedExpr :=
   parseLeftAssoc parseMulExpr parseAddOp
 
-def parseShiftExpr : P MarkedExpr :=
+partial def parseShiftExpr : P MarkedExpr :=
   parseLeftAssoc parseAddExpr parseShiftOp
 
-def parseCompExpr : P MarkedExpr :=
+partial def parseCompExpr : P MarkedExpr :=
   parseLeftAssoc parseShiftExpr parseCompOp
 
-def parseEqExpr : P MarkedExpr :=
+partial def parseEqExpr : P MarkedExpr :=
   parseLeftAssoc parseCompExpr parseEqOp
 
-def parseBitAndExpr : P MarkedExpr :=
+partial def parseBitAndExpr : P MarkedExpr :=
   parseLeftAssoc parseEqExpr parseBitAndOp
 
-def parseBitXorExpr : P MarkedExpr :=
+partial def parseBitXorExpr : P MarkedExpr :=
   parseLeftAssoc parseBitAndExpr parseBitXorOp
 
-def parseBitOrExpr : P MarkedExpr :=
+partial def parseBitOrExpr : P MarkedExpr :=
   parseLeftAssoc parseBitXorExpr parseBitOrOp
 
-def parseLandExpr : P MarkedExpr :=
+partial def parseLandExpr : P MarkedExpr :=
   parseLeftAssoc parseBitOrExpr parseLandOp
 
-def parseLorExpr : P MarkedExpr :=
+partial def parseLorExpr : P MarkedExpr :=
   parseLeftAssoc parseLandExpr parseLorOp
 
-def parseCondExpr : P MarkedExpr := do
+partial def parseCondExpr : P MarkedExpr := do
   let firstTest ← parseLorExpr
   -- Parse chained conditional segments and fold right:
   -- a ? b : c ? d : e  ==>  a ? b : (c ? d : e)
@@ -273,7 +287,28 @@ def parseCondExpr : P MarkedExpr := do
     finalElse
     pairs
 
-def parseExpr : P MarkedExpr :=
+partial def parseArgs : P (List MarkedExpr) := do
+  let firstOpt ← option? parseExpr
+  match firstOpt with
+  | none => pure []
+  | some first =>
+      let restRev ← Parser.foldl (fun acc p => p :: acc) [] do
+        let _ ← expectKindTokMsg (only .comma) "expected ',' between parameters"
+        parseExpr
+      pure (first :: restRev.reverse)
+
+partial def parseFCall : P MarkedExpr := do
+  let idTok ← expectKindTokMsg (fun | .ident _ => true | _ => false) "expected function name"
+  let fname :=
+    match idTok.kind with
+    | .ident name => name
+    | _ => ""
+  let _ ← expectKindTokMsg (only .lParen) "expected '('"
+  let args ← parseArgs
+  let rParen ← expectKindTokMsg (only .rParen) "expected ')'"
+  pure ({ node := .call fname args, span := some (spanFromTokenBounds idTok rParen) })
+
+partial def parseExpr : P MarkedExpr :=
   withErrorMessage "while parsing expression" parseCondExpr
 
 end
@@ -499,13 +534,23 @@ def parseParam : P Param := do
   let paramName ← parseIdent
   pure (tau, paramName)
 
+def parseParams : P (List Param) := do
+  let firstOpt ← option? parseParam
+  match firstOpt with
+  | none => pure []
+  | some first =>
+      let restRev ← Parser.foldl (fun acc p => p :: acc) [] do
+        let _ ← expectKindTokMsg (only .comma) "expected ',' between parameters"
+        parseParam
+      pure (first :: restRev.reverse)
+
 def parseFdecl : P GDecl := do
   let annosRev ← Parser.foldl (fun acc anno => anno :: acc) [] parseSingleAnnotation
   let annotations := annosRev.reverse.map (fun a => ({ node := .annotation a, span := a.span } : MarkedStm))
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function declaration"
-  let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
+  let params ← parseParams
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function declaration"
   let _ ← expectKindTokMsg (only .semicolon) "expected ';' after function declaration"
   pure (.fdecl tau fname params annotations)
@@ -516,7 +561,7 @@ def parseFdefn : P GDecl := do
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function definition"
-  let params ← Parser.foldl (fun acc param => param :: acc) [] parseParam
+  let params ← parseParams
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function definition"
   let _ ← expectKindTokMsg (only .lBrace) "expected '{' to start function body"
   let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
