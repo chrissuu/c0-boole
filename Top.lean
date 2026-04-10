@@ -129,7 +129,7 @@ def main (args : List String) : IO UInt32 := do
       else
         match cfg.emit with
         | .llvm =>
-            C0Boole.LLVM.Codegen.emit llvmIR (infile ++ ".ll")
+            C0Boole.LLVM.EmitLlvm.emit llvmIR (infile ++ ".ll")
         | .exe =>
             let exe := infile ++ ".exe"
             IO.FS.writeFile exe "#!/bin/sh\necho 0\n"

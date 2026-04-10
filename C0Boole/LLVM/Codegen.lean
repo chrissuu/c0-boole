@@ -52,7 +52,7 @@ def isAtom : Tree.Expr → Bool
   | .const _ | .temp _ => true
   | _ => false
 
-abbrev FEnv := Std.HashMap String IR.Tau
+abbrev FEnv := Std.HashMap String (IR.Tau × List IR.Tau)
 
 def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) : List IR.Stm × IR.Expr × TempCounter :=
   match expr with
@@ -97,16 +97,16 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) : List IR.
       )
       ([], [], tc)
       args
-    let tau := fenv.get! fname
-    match tau with
+    let (retTau, argsTau) := fenv.get! fname
+    match retTau with
     | .void =>
-      ( stms ++ [.callVoid fname transArgs]
+      ( stms ++ [.callVoid fname (List.zip argsTau transArgs)]
       , .nop
       , tc'
       )
     | _ =>
       ( stms
-      , .call tau fname transArgs
+      , .call retTau fname (List.zip argsTau transArgs)
       , tc'
       )
 
@@ -116,8 +116,9 @@ def translateTau : Tree.Tau → IR.Tau
 
 def mkFenv (program : Tree.Program) : FEnv :=
   List.foldl
-  (λ env (fname, tau, _, _) =>
-    env.insert fname (translateTau tau))
+  (λ env (fname, tau, args, _) =>
+    env.insert fname (translateTau tau,
+    List.map (λ (tau, _) => translateTau tau) args))
   {}
   program
 
@@ -183,7 +184,7 @@ def translateFdefn (fdefn : Tree.FunctionDef) (tc : TempCounter) (lc : LabelCoun
     List.foldr
     (λ cmd (stmsAcc, tcAcc, lcAcc) =>
       let (stms, tc', lc') := translateCmd cmd tcAcc lcAcc fenv
-      (stmsAcc ++ stms, tc', lc')
+      (stms ++ stmsAcc, tc', lc')
     )
     ([], tc, lc)
     cmds
