@@ -228,16 +228,27 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
   | .fdecl _ _ _ _ => panic! "[Error] fdecls should have been elaborated away but found in translateGdecl"
   | .typedef _ _ => panic! "[Error] typedefs should have been elaborated away but found in translateGdecl"
   | .fdefn retType fname params body _ =>
+    let (temps, tc) := Temp.bumpAndCreateK 0 params.length
+    let paramsTemps := List.zip params temps
+    let (params', seededEnv) := List.foldr
+      -- TODO: i don't really like this, since it assumes that in the downstream pass, function args will preserve temp.name and also
+      -- explicitly emit %temp.name
+      (λ ((tau, varName), temp) (paramsAcc, envAcc) => ((translateTau tau, temp.name)::paramsAcc, envAcc.insert varName temp))
+      ([], {})
+      paramsTemps
+
+    dbg_trace s!"{seededEnv.contains "n"}"
+
     let (cmds, _, _, _) := (List.foldl
       (λ (cmdsAcc, envAcc, tcAcc, lcAcc) mstm =>
         let (cmds, env', tc', lc') := translateStm mstm envAcc tcAcc lcAcc
         (cmdsAcc ++ cmds, env', tc', lc')
       )
-      ([], {}, 0, 0)
+      ([], seededEnv, tc, 0)
       body)
-    (fname
+    ( fname
     , translateTau retType
-    , List.map translateParam params
+    , params'
     , cmds)
 
 def translate (program : Ast.Program) : Tree.Program :=
