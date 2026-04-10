@@ -299,9 +299,9 @@ def ppGDecl : GDecl → String
       s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params};"
   | .fdefn ret id params stms annotations =>
       if stms.isEmpty then
-        s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params} \{\n}"
+        s!"{ppAnnos annotations}\n{ppTau ret} {id}{ppParams params} \{\n}"
       else
-        s!"{ppAnnos annotations}\{\n}{ppTau ret} {id}{ppParams params} \{\n{ppStms stms}}"
+        s!"{ppAnnos annotations}\n{ppTau ret} {id}{ppParams params} \{\n{ppStms stms}}"
 
 def ppProgram (program : Program) : String :=
   String.intercalate "\n\n" (program.map ppGDecl)

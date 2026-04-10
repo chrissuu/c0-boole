@@ -12,7 +12,6 @@ inductive Tau where
   | void
 deriving Inhabited
 
-
 abbrev Var := Temp
 abbrev VarName := String
 abbrev Arg := Tau × VarName
@@ -44,11 +43,11 @@ inductive Expr where
   | bitVec (bitVec : BitVec 32)
   | var (t : Temp)
   | binop (op : BinOp) (tau : Tau) (lhs : Expr) (rhs : Expr)
-  | call (tau : Tau) (fname : String) (args : List Expr)
+  | call (tau : Tau) (fname : String) (args : List (Tau × Expr))
 
 inductive Stm where
   | assign (var : Var) (val : Expr)
-  | callVoid (fname : String) (args : List Expr)
+  | callVoid (fname : String) (args : List (Tau × Expr))
   | label (l : Label)
   | brJump (l : Label)
   | brIte (val : Expr) (thenBranch : Label) (elseBranch : Label)

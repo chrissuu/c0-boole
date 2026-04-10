@@ -4,7 +4,7 @@ open C0Boole
 open C0Boole.Ast
 open C0Boole.LLVM.IR
 
-namespace C0Boole.LLVM.Codegen
+namespace C0Boole.LLVM.EmitLlvm
 
 def emitTau : IR.Tau → String
   | .i1 => "i1"
@@ -30,23 +30,41 @@ def emitBinOp : IR.BinOp → String
   | .eq => "eq"
   | .ne => "ne"
 
+def isCmpOp : IR.BinOp → Bool
+  | .add
+  | .sub
+  | .mul
+  | .sdiv
+  | .srem
+  | .and
+  | .xor
+  | .or
+  | .shl
+  | .ashr => false
+  | .slt
+  | .sgt
+  | .sle
+  | .sge
+  | .eq
+  | .ne => true
+
 def emitArgs (args : List IR.Arg) : String :=
   ", ".intercalate (List.map (λ (tau, varName) => s!"{emitTau tau} %{varName}") args)
 
 mutual
-def emitFEvals (args : List IR.Expr) : String :=
-  ", ".intercalate (List.map emitVal args)
+partial def emitFEvals (args : List (IR.Tau × IR.Expr)) : String :=
+  ", ".intercalate (List.map
+  (λ (tau, arg) => s!"{emitTau tau} {emitVal arg}") args)
 
 
-def emitVal : IR.Expr → String
+partial def emitVal : IR.Expr → String
   | .bitVec bv => toString (Int32.ofInt (bv.toInt))
-  | .var t => t.name
+  | .var t => s!"%{t.name}"
   | .binop op tau lhs rhs =>
-    s!"{emitBinOp op} {emitTau tau} {emitVal lhs} {emitVal rhs}"
+    s!"{if isCmpOp op then "icmp " else ""}{emitBinOp op} {emitTau tau} {emitVal lhs}, {emitVal rhs}"
   | .call tau fname args =>
     s!"call {emitTau tau} @{fname}({emitFEvals args})"
   | .nop => ""
-
 end
 
 def emitStm (retTau : IR.Tau) : IR.Stm → String
@@ -80,7 +98,7 @@ def emitFdefn (fdefn : IR.FunctionDef) : String :=
         if indent then "\t" ++ rawEmitStm else rawEmitStm)
       |> String.intercalate "\n"
 
-  "define {emitTau tau} "
+  s!"define {emitTau tau} "
   ++ s!"@{fname}({emitArgs args}) "
   ++ "{"
   ++ "\n"
@@ -92,4 +110,4 @@ def emit (program : IR.Program) (fileName : String): IO Unit :=
   let rawProgram := "\n\n".intercalate (List.map emitFdefn program)
   IO.FS.writeFile fileName rawProgram
 
-end C0Boole.LLVM.Codegen
+end C0Boole.LLVM.EmitLlvm

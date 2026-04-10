@@ -20,11 +20,15 @@ structure CliConfig where
   optLevel      : Nat := 0
   libs          : List String := []
   unsafeMode    : Bool := false
+  dumpTokens    : Bool := false
+  dumpAst       : Bool := false
+  dumpTree      : Bool := false
 
 private def usage : String :=
   String.intercalate "\n"
     [ "usage: bin/c0c [-Olevel] [--emit=option] [-l header.h0] [--unsafe] infile.lN"
     , "       bin/c0c -t infile.lN"
+    , "       [--dump-tokens] [--dump-ast] [--dump-tree]"
     ]
 
 private def parseNatOrZero (s : String) : Nat :=
@@ -43,6 +47,9 @@ private def parseArgs : List String → CliConfig → Except String CliConfig
   | "-t" :: rest, cfg => parseArgs rest { cfg with typecheckOnly := true }
   | "--typecheck-only" :: rest, cfg => parseArgs rest { cfg with typecheckOnly := true }
   | "--unsafe" :: rest, cfg => parseArgs rest { cfg with unsafeMode := true }
+  | "--dump-tokens" :: rest, cfg => parseArgs rest { cfg with dumpTokens := true }
+  | "--dump-ast" :: rest, cfg => parseArgs rest { cfg with dumpAst := true }
+  | "--dump-tree" :: rest, cfg => parseArgs rest { cfg with dumpTree := true }
   | "-l" :: lib :: rest, cfg => parseArgs rest { cfg with libs := cfg.libs.concat lib }
   | "--lib" :: lib :: rest, cfg => parseArgs rest { cfg with libs := cfg.libs.concat lib }
   | arg :: rest, cfg =>
@@ -71,16 +78,31 @@ private def parseArgs : List String → CliConfig → Except String CliConfig
         | none => parseArgs rest { cfg with infile := some arg }
         | some _ => .error s!"multiple input files provided: {arg}"
 
-private def runFrontend (infile : String) : IO (Except String C0Boole.LLVM.IR.Program) := do
+private def runFrontend (cfg : CliConfig) (infile : String) : IO (Except String C0Boole.LLVM.IR.Program) := do
   let source ← IO.FS.readFile infile
-  pure <| do
-    let tokens ← C0Boole.Lexer.munch infile source
-    let program ← C0Boole.Parse.parseProgramFromTokens tokens
-    let elabbedProgram ← C0Boole.Elab.elabProgram program
-    let _ ← C0Boole.Typechecker.tc elabbedProgram
-    let treeProgram := C0Boole.LLVM.Tree.Trans.translate elabbedProgram
-    let llvmIR := C0Boole.LLVM.Codegen.translate treeProgram
-    pure llvmIR
+  match C0Boole.Lexer.munch infile source with
+  | .error err => pure (.error err)
+  | .ok tokens =>
+      if cfg.dumpTokens then
+        IO.println (C0Boole.Token.Print.ppTokens tokens)
+      let parsed := C0Boole.Parse.parseProgramFromTokens tokens
+      match parsed with
+      | .error err => pure (.error err)
+      | .ok program =>
+          let elabbed := C0Boole.Elab.elabProgram program
+          match elabbed with
+          | .error err => pure (.error err)
+          | .ok elabbedProgram =>
+              if cfg.dumpAst then
+                IO.println (C0Boole.Ast.Print.ppProgram elabbedProgram)
+              match C0Boole.Typechecker.tc elabbedProgram with
+              | .error err => pure (.error err)
+              | .ok _ =>
+                  let treeProgram := C0Boole.LLVM.Tree.Trans.translate elabbedProgram
+                  if cfg.dumpTree then
+                    IO.println (C0Boole.LLVM.Tree.Print.ppProgram treeProgram)
+                  let llvmIR := C0Boole.LLVM.Codegen.translate treeProgram
+                  pure (.ok llvmIR)
 
 def main (args : List String) : IO UInt32 := do
   let cfgE := parseArgs args {}
@@ -96,7 +118,7 @@ def main (args : List String) : IO UInt32 := do
         return 1
     | some file => pure file
 
-  let frontendResult ← runFrontend infile
+  let frontendResult ← runFrontend cfg infile
   match frontendResult with
   | .error err =>
       IO.eprintln err
@@ -107,7 +129,7 @@ def main (args : List String) : IO UInt32 := do
       else
         match cfg.emit with
         | .llvm =>
-            C0Boole.LLVM.Codegen.emit llvmIR (infile ++ ".ll")
+            C0Boole.LLVM.EmitLlvm.emit llvmIR (infile ++ ".ll")
         | .exe =>
             let exe := infile ++ ".exe"
             IO.FS.writeFile exe "#!/bin/sh\necho 0\n"

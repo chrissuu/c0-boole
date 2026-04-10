@@ -19,6 +19,15 @@ def Temp.bumpAndCreate (tc : TempCounter) : Temp × TempCounter :=
   let tc' := TempCounter.bump tc
   ({ name := s!"t{tc'}" }, tc')
 
+def Temp.bumpAndCreateK (tc : TempCounter) (k : Nat) : List Temp × TempCounter :=
+  let rec go (n : Nat) (tcAcc : TempCounter) (tempsAcc : List Temp) : List Temp × TempCounter :=
+    match n with
+    | 0 => (tempsAcc.reverse, tcAcc)
+    | n' + 1 =>
+      let (t, tc') := Temp.bumpAndCreate tcAcc
+      go n' tc' (t :: tempsAcc)
+  go k tc []
+
 def Temp.bumpAndCreateNamed (tc : TempCounter) (name : String) : Temp × TempCounter :=
   let tc' := TempCounter.bump tc
   ({ name := s!"t{tc'}_{name}" }, tc')

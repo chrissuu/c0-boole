@@ -113,10 +113,11 @@ retrieved. We take the argmax amongst this set w.r.t retrieved string length.
 We then jump our character pointer to after the string length, ignoring whitespaces.
 The SrcLoc ptr is updated in these instances: Tabs, Return, etc.
 
-ident       ::= ['A'-'Z' 'a'-'z' '_']['A'-'Z' 'a'-'z' '0'-'9' '_']*
-integer     ::= ("0" | ['1'-'9'](['0'-'9']*))
-hexadecimal ::= "0"['x' 'X']['0'-'9' 'a'-'f' 'A'-'F']+
-ws          ::= [' ' '\t' '\r' '\011' '\012']
+    ident       ::= ['A'-'Z' 'a'-'z' '_']['A'-'Z' 'a'-'z' '0'-'9' '_']*
+    integer     ::= ("0" | ['1'-'9'](['0'-'9']*))
+    hexadecimal ::= "0"['x' 'X']['0'-'9' 'a'-'f' 'A'-'F']+
+    ws          ::= [' ' '\t' '\r' '\011' '\012']
+
 -/
 
 def isHexLitSeed c := c == '0'

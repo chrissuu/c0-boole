@@ -95,7 +95,7 @@ partial def ppExpr : Expr → String
 def ppCommand : Command → String
   | .move dest src => s!"{dest.name} <- {ppExpr src};"
   | .ite test thenBranch elseBranch =>
-      s!"if ({ppExpr test}) goto {thenBranch.name}; else goto {elseBranch.name};"
+      s!"if ({ppExpr test}) goto {thenBranch.name} else goto {elseBranch.name}"
   | .goto label => s!"goto {label.name};"
   | .label l => s!"{l.name}:"
   | .ret valOpt =>
@@ -105,7 +105,7 @@ def ppCommand : Command → String
 
 def ppFunctionDef (fdef : FunctionDef) : String :=
   let (fname, tau, args, commands) := fdef
-  s!"{ppTau tau} {fname}({String.intercalate ", " (List.map ppArg args)}){String.intercalate "\n" (List.map ppCommand commands)}"
+  s!"{ppTau tau} {fname}({String.intercalate ", " (List.map ppArg args)})\n{String.intercalate "\n" (List.map ppCommand commands)}"
 
 def ppProgram (program : Program) : String :=
   String.intercalate "\n" (program.map ppFunctionDef)
