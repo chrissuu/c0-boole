@@ -68,25 +68,12 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) : List IR.
 
   | .binop op lhs rhs =>
     let tau : IR.Tau := if isCmpOp op then .i1 else .i32
-    match (isAtom lhs, isAtom rhs) with
-    | (true, true) =>
-      let (_, transLhs, tc') := translateExpr lhs tc fenv
-      let (_, transRhs, tc'') := translateExpr rhs tc' fenv
-      let (temp, tc''') := Temp.bumpAndCreate tc''
-
-      ( [.assign temp (.binop (translateBinOp op) tau transLhs transRhs)]
-      , .var temp
-      , tc'''
-      )
-
-    | (_, _) =>
-      let (stmsLhs, transLhs, tc') := translateExpr lhs tc fenv
-      let (stmsRhs, transRhs, tc'') := translateExpr rhs tc' fenv
-
-      ( stmsLhs ++ stmsRhs
-      , .binop (translateBinOp op) tau transLhs transRhs
-      , tc''
-      )
+    let (stmsLhs, transLhs, tc') := translateExpr lhs tc fenv
+    let (stmsRhs, transRhs, tc'') := translateExpr rhs tc' fenv
+    ( stmsLhs ++ stmsRhs
+    , .binop (translateBinOp op) tau transLhs transRhs
+    , tc''
+    )
 
   | .call fname args =>
     let (stms, transArgs, tc') :=
