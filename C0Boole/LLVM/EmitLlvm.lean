@@ -52,23 +52,26 @@ def emitArgs (args : List IR.Arg) : String :=
   ", ".intercalate (List.map (λ (tau, varName) => s!"{emitTau tau} %{varName}") args)
 
 mutual
-partial def emitFEvals (args : List (IR.Tau × IR.Expr)) : String :=
+partial def emitFEvals (args : List (IR.Tau × IR.Val)) : String :=
   ", ".intercalate (List.map
   (λ (tau, arg) => s!"{emitTau tau} {emitVal arg}") args)
 
 
-partial def emitVal : IR.Expr → String
-  | .bitVec bv => toString (Int32.ofInt (bv.toInt))
+partial def emitVal : IR.Val → String
+  | .void => ""
   | .var t => s!"%{t.name}"
+  | .ptr t => s!"%{t.name}"
+  | .bitVec bv => toString (Int32.ofInt (bv.toInt))
+end
+
+def emitExpr : IR.Expr → String
   | .binop op tau lhs rhs =>
     s!"{if isCmpOp op then "icmp " else ""}{emitBinOp op} {emitTau tau} {emitVal lhs}, {emitVal rhs}"
   | .call tau fname args =>
     s!"call {emitTau tau} @{fname}({emitFEvals args})"
-  | .nop => ""
-end
 
 def emitStm (retTau : IR.Tau) : IR.Stm → String
-  | .assign var val => s!"%{var.name} = {emitVal val}"
+  | .assign dest src  => s!"{emitVal dest} = {emitExpr src}"
 
   | .callVoid fname args =>
     s!"call void @{fname}({emitFEvals args})"
@@ -86,6 +89,15 @@ def emitStm (retTau : IR.Tau) : IR.Stm → String
     match retTau with
     | .void => s!"ret void"
     | _ => s!"ret {emitTau retTau} {emitVal val}"
+
+  | .alloca ptr tau =>
+    s!"{emitVal ptr} = alloca {emitTau tau}"
+
+  | .store tau val ptr =>
+    s!"store {emitTau tau} {emitVal val}, ptr {emitVal ptr}"
+
+  | .load dest tau ptr =>
+    s!"{emitVal dest} = load {emitTau tau}, ptr {emitVal ptr}"
 
 def emitFdefn (fdefn : IR.FunctionDef) : String :=
   let (fname, tau, args, stms) := fdefn
