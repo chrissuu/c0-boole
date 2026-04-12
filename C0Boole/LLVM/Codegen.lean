@@ -304,14 +304,24 @@ def translateArgs (args : List Tree.Arg) : List IR.Arg := List.map translateArg 
 
 def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
   let (fname, tau, args, cmds) := fdefn
-  let (stms, seededTEnv, tc) := List.foldr
+
+  -- TODO: once again, this is pretty dangerous, since it sort of breaks the Temp.bumpAndCreate invariant
+  let seededTc := List.foldl
+    (λ tcAcc (_, _) =>
+      let (_, tc) := Temp.bumpAndCreate tcAcc
+      tc
+    )
+    0
+    args
+
+  let (stms, seededTEnv', tc') := List.foldr
     (λ (tau, temp) (stmsAcc, tenvAcc, tcAcc) =>
       let (ptr, tc') := Temp.bumpAndCreate tcAcc
       let alloca : IR.Stm := .alloca (.ptr ptr) (translateTau tau)
       let store : IR.Stm := .store (translateTau tau) (.var temp) (.ptr ptr)
       (alloca::store::stmsAcc, (tenvAcc.insert temp.name (TempInfo.mk ptr (translateTau tau) true), tc')
     ))
-    ([], {}, 0)
+    ([], {}, seededTc)
     args
 
   let (transCmds, _, _, _) :=
@@ -320,7 +330,7 @@ def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
       let (stms, tc', lc', tenv') := translateCmd cmd tcAcc lcAcc fenv tenvAcc
       (stmsAcc ++ stms, tc', lc', tenv')
     )
-    (stms, tc, 0, seededTEnv)
+    (stms, tc', 0, seededTEnv')
     cmds
 
   ( fname
