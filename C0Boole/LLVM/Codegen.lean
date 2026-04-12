@@ -24,8 +24,8 @@ def translateBinOp : Tree.BinOp → IR.BinOp
   | .shl => .shl
   | .shr => .ashr
   | .lt => .slt
-  | .lte => .sgt
-  | .gt => .sle
+  | .lte => .sle
+  | .gt => .sgt
   | .gte => .sge
   | .eq => .eq
   | .neq => .ne
@@ -160,11 +160,11 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TE
       , tenv'
       )
     | _ =>
-      let (temp, tc') := Temp.bumpAndCreate tc
+      let (temp, tc'') := Temp.bumpAndCreate tc'
       ( stms ++ [ .assign (.var temp) (.call retTau fname (List.zip argsTau transArgs)) ]
       , .var temp
       , retTau
-      , tc'
+      , tc''
       , tenv'
       )
 
