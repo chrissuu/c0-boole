@@ -111,7 +111,7 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TE
       match tempInfo.isPtr with
       | true =>
         let (temp, tc') := Temp.bumpAndCreate tc
-        ( [ .load (.var temp) tempInfo.tau (.ptr tempInfo.temp)]
+        ( [ .load (.var temp) tempInfo.tau (.ptr tempInfo.temp) ]
         , .var temp
         , tempInfo.tau
         , tc'
@@ -123,9 +123,8 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TE
         , tempInfo.tau
         , tc
         , tenv)
-    | none =>
 
-    panic! s!"[Error] saw a var ({var.name}) used before being defined"
+    | none => panic! s!"[Error] saw a var ({var.name}) used before being defined"
 
   | .binop op lhs rhs =>
     let tau : IR.Tau := if isCmpOp op then .i1 else .i32
@@ -207,7 +206,7 @@ def translateCmd
 : List IR.Stm × TempCounter × LabelCounter × TEnv :=
   match cmd with
   | .move dest src =>
-    -- transVal will be an atom (i.e., one of imm or reg) at this point
+    -- transVal will be an atom (i.e., reg) at this point
     let (stms, transVal, tau, tc', tenv') := translateExpr src tc fenv tenv
     let (stms', ptrOpt, tc'', tenv'') :=
       match tenv.get? dest.name with
@@ -226,15 +225,18 @@ def translateCmd
           , tenv')
 
       | none =>
-        let (ptr, tc'') := Temp.bumpAndCreate tc'
-        let destTempInfo := TempInfo.mk ptr tau true
-        ( stms ++ [ Stm.alloca (.ptr ptr) tau ]
-        , some ptr
-        , tc''
-        , tenv'.insert dest.name destTempInfo)
+        match transVal with
+        | .var t =>
+          dbg_trace s!"Didn't find {dest.name} in TEnv. Creating new ptr to house the src of the mov."
+          let destTempInfo := TempInfo.mk t tau false
+          ( stms
+          , none
+          , tc'
+          , tenv'.insert dest.name destTempInfo)
+        | _ => panic! "[Error] after translating expr type, expect temp but found something else"
 
-    let isPtr := Option.isSome ptrOpt
-    match isPtr with
+    let destIsPtr := Option.isSome ptrOpt
+    match destIsPtr with
     | true =>
       ( stms' ++
         [ .store tau transVal (.ptr ptrOpt.get!) ]
@@ -243,12 +245,10 @@ def translateCmd
       , tenv'')
 
     | false =>
-      let (temp, tc''') := Temp.bumpAndCreate tc''
-      let tempInfo := TempInfo.mk temp tau false
-      ( stms' ++ [ .load (.var temp) tau (.ptr ptrOpt.get!)]
-      , tc'''
+      ( stms'
+      , tc''
       , lc
-      , tenv''.insert dest.name tempInfo
+      , tenv''
       )
 
   | .ite test thenBranch elseBranch =>
@@ -303,6 +303,7 @@ def translateArgs (args : List Tree.Arg) : List IR.Arg := List.map translateArg 
 
 def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
   let (fname, tau, args, cmds) := fdefn
+  dbg_trace s!"Translating {fname} (Tree->IR)"
 
   -- TODO: once again, this is pretty dangerous, since it sort of breaks the Temp.bumpAndCreate invariant
   let seededTc := List.foldl
