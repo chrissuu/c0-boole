@@ -23,12 +23,13 @@ structure CliConfig where
   dumpTokens    : Bool := false
   dumpAst       : Bool := false
   dumpTree      : Bool := false
+  dumpIrRaw     : Bool := false
 
 private def usage : String :=
   String.intercalate "\n"
     [ "usage: bin/c0c [-Olevel] [--emit=option] [-l header.h0] [--unsafe] infile.lN"
     , "       bin/c0c -t infile.lN"
-    , "       [--dump-tokens] [--dump-ast] [--dump-tree]"
+    , "       [--dump-tokens] [--dump-ast] [--dump-tree] [--dump-ir-raw]"
     ]
 
 private def parseNatOrZero (s : String) : Nat :=
@@ -50,6 +51,7 @@ private def parseArgs : List String → CliConfig → Except String CliConfig
   | "--dump-tokens" :: rest, cfg => parseArgs rest { cfg with dumpTokens := true }
   | "--dump-ast" :: rest, cfg => parseArgs rest { cfg with dumpAst := true }
   | "--dump-tree" :: rest, cfg => parseArgs rest { cfg with dumpTree := true }
+  | "--dump-ir-raw" :: rest, cfg => parseArgs rest { cfg with dumpIrRaw := true }
   | "-l" :: lib :: rest, cfg => parseArgs rest { cfg with libs := cfg.libs.concat lib }
   | "--lib" :: lib :: rest, cfg => parseArgs rest { cfg with libs := cfg.libs.concat lib }
   | arg :: rest, cfg =>
@@ -102,6 +104,8 @@ private def runFrontend (cfg : CliConfig) (infile : String) : IO (Except String 
                   if cfg.dumpTree then
                     IO.println (C0Boole.LLVM.Tree.Print.ppProgram treeProgram)
                   let llvmIR := C0Boole.LLVM.Codegen.translate treeProgram
+                  if cfg.dumpIrRaw then
+                    IO.println (C0Boole.LLVM.IR.Print.ppProgramRaw llvmIR)
                   pure (.ok llvmIR)
 
 def main (args : List String) : IO UInt32 := do

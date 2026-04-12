@@ -65,12 +65,138 @@ abbrev FunctionDef := String × Tau × List Arg × List Stm
 abbrev Program := List FunctionDef
 
 namespace Print
+private def spaces (n : Nat) : String :=
+  String.ofList (List.replicate (n * 2) ' ')
+
 def ppTau : Tau → String
   | .i1 => "i1"
   | .i8 => "i8"
   | .i32 => "i32"
   | .void => "void"
 
+def ppBinOp : BinOp → String
+  | .add => "add"
+  | .sub => "sub"
+  | .mul => "mul"
+  | .sdiv => "sdiv"
+  | .srem => "srem"
+  | .and => "and"
+  | .xor => "xor"
+  | .or => "or"
+  | .shl => "shl"
+  | .ashr => "ashr"
+  | .slt => "slt"
+  | .sgt => "sgt"
+  | .sle => "sle"
+  | .sge => "sge"
+  | .eq => "eq"
+  | .ne => "ne"
+
+def ppVal : Val → String
+  | .void => "void"
+  | .var t => t.name
+  | .ptr t => s!"*{t.name}"
+  | .bitVec bitVec => toString (Int32.ofInt bitVec.toInt)
+
+def ppArg (arg : Arg) : String :=
+  let (tau, name) := arg
+  s!"{ppTau tau} {name}"
+
+def ppTypedVal (typedVal : Tau × Val) : String :=
+  let (tau, val) := typedVal
+  s!"{ppTau tau} {ppVal val}"
+
+def ppExpr : Expr → String
+  | .binop op tau lhs rhs => s!"{ppBinOp op} {ppTau tau} {ppVal lhs}, {ppVal rhs}"
+  | .call tau fname args =>
+      s!"call {ppTau tau} {fname}({String.intercalate ", " (args.map ppTypedVal)})"
+
+def ppStm : Stm → String
+  | .assign dest exp => s!"{ppVal dest} <- {ppExpr exp};"
+  | .callVoid fname args =>
+      s!"call void {fname}({String.intercalate ", " (args.map ppTypedVal)});"
+  | .label l => s!"{l.name}:"
+  | .brJump l => s!"br {l.name};"
+  | .brIte val thenBranch elseBranch =>
+      s!"br {ppVal val}, {thenBranch.name}, {elseBranch.name};"
+  | .ret val => s!"ret {ppVal val};"
+  | .alloca ptr tau => s!"alloca {ppVal ptr} : {ppTau tau};"
+  | .store tau val ptr => s!"store {ppTau tau} {ppVal val} -> {ppVal ptr};"
+  | .load dest tau ptr => s!"{ppVal dest} <- load {ppTau tau} {ppVal ptr};"
+
+def ppFunctionDef (fdef : FunctionDef) : String :=
+  let (fname, tau, args, stms) := fdef
+  s!"{ppTau tau} {fname}({String.intercalate ", " (args.map ppArg)})\n"
+  ++ String.intercalate "\n" (stms.map ppStm)
+
+def ppProgram (program : Program) : String :=
+  String.intercalate "\n\n" (program.map ppFunctionDef)
+
+def ppValRaw : Val → String
+  | .void => "Void"
+  | .var t => s!"Var({t.name})"
+  | .ptr t => s!"Ptr({t.name})"
+  | .bitVec bitVec => s!"BitVec32({Int32.ofInt bitVec.toInt})"
+
+def ppTypedValRaw (typedVal : Tau × Val) : String :=
+  let (tau, val) := typedVal
+  s!"({ppTau tau}, {ppValRaw val})"
+
+def ppExprRaw (indentLevel : Nat) : Expr → String
+  | .binop op tau lhs rhs =>
+      s!"{spaces indentLevel}Binop({ppBinOp op}, {ppTau tau},\n"
+      ++ s!"{spaces (indentLevel + 1)}{ppValRaw lhs},\n"
+      ++ s!"{spaces (indentLevel + 1)}{ppValRaw rhs}\n"
+      ++ s!"{spaces indentLevel})"
+  | .call tau fname args =>
+      s!"{spaces indentLevel}Call({ppTau tau}, {fname}, ["
+      ++ String.intercalate ", " (args.map ppTypedValRaw)
+      ++ "])"
+
+def ppStmRaw (indentLevel : Nat) : Stm → String
+  | .assign dest exp =>
+      s!"{spaces indentLevel}Assign({ppValRaw dest},\n{ppExprRaw (indentLevel + 1) exp}\n{spaces indentLevel})"
+  | .callVoid fname args =>
+      s!"{spaces indentLevel}CallVoid({fname}, [{String.intercalate ", " (args.map ppTypedValRaw)}])"
+  | .label l =>
+      s!"{spaces indentLevel}Label({l.name})"
+  | .brJump l =>
+      s!"{spaces indentLevel}BrJump({l.name})"
+  | .brIte val thenBranch elseBranch =>
+      s!"{spaces indentLevel}BrIte({ppValRaw val}, {thenBranch.name}, {elseBranch.name})"
+  | .ret val =>
+      s!"{spaces indentLevel}Ret({ppValRaw val})"
+  | .alloca ptr tau =>
+      s!"{spaces indentLevel}Alloca({ppValRaw ptr}, {ppTau tau})"
+  | .store tau val ptr =>
+      s!"{spaces indentLevel}Store({ppTau tau}, {ppValRaw val}, {ppValRaw ptr})"
+  | .load dest tau ptr =>
+      s!"{spaces indentLevel}Load({ppValRaw dest}, {ppTau tau}, {ppValRaw ptr})"
+
+def ppFunctionDefRaw (fdef : FunctionDef) : String :=
+  let (fname, tau, args, stms) := fdef
+  let argsStr := String.intercalate ", " (args.map ppArg)
+  let stmsStr := String.intercalate "\n" (stms.map (ppStmRaw 1))
+  s!"Fdefn({ppTau tau}, {fname}, [{argsStr}], [\n{stmsStr}\n])"
+
+def ppProgramRaw (program : Program) : String :=
+  "Program:\n" ++ String.intercalate "\n\n" (program.map ppFunctionDefRaw)
+
 end Print
+
+instance : ToString BinOp where
+  toString := Print.ppBinOp
+
+instance : ToString Val where
+  toString := Print.ppVal
+
+instance : ToString Expr where
+  toString := Print.ppExpr
+
+instance : ToString Stm where
+  toString := Print.ppStm
+
+instance : ToString Program where
+  toString := Print.ppProgram
 
 end C0Boole.LLVM.IR
