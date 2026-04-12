@@ -131,10 +131,8 @@ partial def translateStm
     let (cmds, expr, env', tc', lc') := translateExpr val env tc lc
     match env.get? varName with
     | some temp =>
-      -- dbg_trace s!"Found in env. Assigning {varName} to {temp.name}"
       (cmds ++ [.move temp expr], env', tc', lc')
     | none =>
-      -- dbg_trace s!"Couldn't find in env. Creating new temp for {varName}"
       let (temp, tc') := Temp.bumpAndCreate tc
       (cmds ++ [.move temp expr], env', tc', lc')
 
@@ -203,7 +201,6 @@ partial def translateStm
     (cmdsValue, env'.insert varName temp, tc'', lc')
 
   | .defn varName _ =>
-    -- dbg_trace s!"Found a defn. Inserting into env for {varName}"
     let (temp, tc') := Temp.bumpAndCreate tc
     ([], env.insert varName temp, tc', lc)
 
@@ -246,7 +243,6 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
       ([], {})
       paramsTemps
 
-    -- dbg_trace s!"{seededEnv.contains "n"}"
 
     let (cmds, _, _, _) := (List.foldl
       (λ (cmdsAcc, envAcc, tcAcc, lcAcc) mstm =>
@@ -261,7 +257,6 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
     , cmds)
 
 def translate (program : Ast.Program) : Tree.Program :=
-  -- dbg_trace s!"{Ast.Print.ppProgramRaw program}"
   List.map translateGdecl program
 
 end C0Boole.LLVM.Tree.Trans

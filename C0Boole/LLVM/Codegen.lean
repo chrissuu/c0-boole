@@ -124,7 +124,6 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TE
         , tc
         , tenv)
     | none =>
-    -- dbg_trace (", ".intercalate (Std.HashMap.keys tenv))
 
     panic! s!"[Error] saw a var ({var.name}) used before being defined"
 
@@ -341,7 +340,6 @@ def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
 def translate (program : Tree.Program) : IR.Program :=
   let fenvInit := mkFenv program
 
-  -- dbg_trace s!"{Tree.Print.ppProgramRaw program}"
   let transProgram :=
     List.foldl
     (λ fdefnAcc fdefn =>
