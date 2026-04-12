@@ -50,15 +50,18 @@ deriving Inhabited
 
 inductive Tau where
   | int
+  | bool
   | void
 deriving Inhabited
 
-abbrev VarName := String
-abbrev Arg := Tau × VarName
+abbrev Arg := Tau × Temp
 abbrev FunctionDef := String × Tau × List Arg × List Command
 abbrev Program := List FunctionDef
 
 namespace Print
+
+private def spaces (n : Nat) : String :=
+  String.ofList (List.replicate (n * 2) ' ')
 
 def ppBinOp : BinOp → String
   | .plus => "+"
@@ -80,11 +83,12 @@ def ppBinOp : BinOp → String
 
 def ppTau : Tau → String
   | .int => "int"
+  | .bool => "bool"
   | .void => "void"
 
 def ppArg (arg : Arg) : String :=
-  let (tau, varName) := arg
-  s!"{ppTau tau} {varName}"
+  let (tau, temp) := arg
+  s!"{ppTau tau} {temp.name}"
 
 partial def ppExpr : Expr → String
   | .const val => toString val
@@ -109,6 +113,44 @@ def ppFunctionDef (fdef : FunctionDef) : String :=
 
 def ppProgram (program : Program) : String :=
   String.intercalate "\n" (program.map ppFunctionDef)
+
+mutual
+partial def ppExprRaw (indentLevel : Nat) : Expr → String
+  | .const val =>
+      s!"{spaces indentLevel}Const({val})"
+  | .temp t =>
+      s!"{spaces indentLevel}Temp({t.name})"
+  | .binop op lhs rhs =>
+      s!"{spaces indentLevel}Binop({ppBinOp op},\n{ppExprRaw (indentLevel + 1) lhs},\n{ppExprRaw (indentLevel + 1) rhs}\n{spaces indentLevel})"
+  | .call fname args =>
+      let argsStr := String.intercalate ",\n" (args.map (ppExprRaw (indentLevel + 1)))
+      s!"{spaces indentLevel}Call({fname}, [\n{argsStr}\n{spaces indentLevel}])"
+
+partial def ppCommandRaw (indentLevel : Nat) : Command → String
+  | .move dest src =>
+      s!"{spaces indentLevel}Move({dest.name},\n{ppExprRaw (indentLevel + 1) src}\n{spaces indentLevel})"
+  | .ite test thenBranch elseBranch =>
+      s!"{spaces indentLevel}Ite(\n{ppExprRaw (indentLevel + 1) test},\n{spaces (indentLevel + 1)}{thenBranch.name},\n{spaces (indentLevel + 1)}{elseBranch.name}\n{spaces indentLevel})"
+  | .goto label =>
+      s!"{spaces indentLevel}Goto({label.name})"
+  | .label l =>
+      s!"{spaces indentLevel}Label({l.name})"
+  | .ret valOpt =>
+      match valOpt with
+      | some val =>
+          s!"{spaces indentLevel}Ret(\n{ppExprRaw (indentLevel + 1) val}\n{spaces indentLevel})"
+      | none =>
+          s!"{spaces indentLevel}Ret(None)"
+end
+
+def ppFunctionDefRaw (fdef : FunctionDef) : String :=
+  let (fname, tau, args, commands) := fdef
+  let argsStr := String.intercalate ", " (args.map ppArg)
+  let cmdsStr := String.intercalate "\n" (commands.map (ppCommandRaw 1))
+  s!"Fdefn({ppTau tau}, {fname}, [{argsStr}], [\n{cmdsStr}\n])"
+
+def ppProgramRaw (program : Program) : String :=
+  s!"Program:\n{String.intercalate "\n" (program.map ppFunctionDefRaw)}"
 
 end Print
 

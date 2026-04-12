@@ -130,8 +130,11 @@ partial def translateStm
   | .assign varName val =>
     let (cmds, expr, env', tc', lc') := translateExpr val env tc lc
     match env.get? varName with
-    | some temp => (cmds ++ [.move temp expr], env', tc', lc')
+    | some temp =>
+      -- dbg_trace s!"Found in env. Assigning {varName} to {temp.name}"
+      (cmds ++ [.move temp expr], env', tc', lc')
     | none =>
+      -- dbg_trace s!"Couldn't find in env. Creating new temp for {varName}"
       let (temp, tc') := Temp.bumpAndCreate tc
       (cmds ++ [.move temp expr], env', tc', lc')
 
@@ -162,13 +165,16 @@ partial def translateStm
     let (labelBody, lc'''') := Label.bumpAndCreate lc'''
     let (labelDone, lc''''') := Label.bumpAndCreate lc''''
 
-    ([.label labelGuard]
+    ([ .goto labelGuard
+       , .label labelGuard
+       ]
     ++ cmdsTest
-    ++ [.ite transTest labelBody labelDone]
-    ++ [.label labelBody]
+    ++ [ .ite transTest labelBody labelDone
+       , .label labelBody]
     ++ cmdsBody
-    ++ [.goto labelGuard]
-    ++ [.label labelDone]
+    ++ [ .goto labelGuard
+       , .label labelDone
+       ]
     , env''
     , tc''
     , lc''''')
@@ -193,10 +199,11 @@ partial def translateStm
   -- TODO: weave in type info into TempEnv
   | .declare varName _ value =>
     let (temp, tc') := Temp.bumpAndCreate tc
-    let (cmdsValue, env', tc'', lc') := translateStm value env tc' lc
+    let (cmdsValue, env', tc'', lc') := translateStm value (env.insert varName temp) tc' lc
     (cmdsValue, env'.insert varName temp, tc'', lc')
 
   | .defn varName _ =>
+    -- dbg_trace s!"Found a defn. Inserting into env for {varName}"
     let (temp, tc') := Temp.bumpAndCreate tc
     ([], env.insert varName temp, tc', lc)
 
@@ -220,8 +227,10 @@ def translateTau : Ast.Tau → Tree.Tau
   | .void => .void
 
 def translateParam (param : Ast.Param) : Tree.Arg :=
-  let (tau, varName) := param
-  (translateTau tau, varName)
+  let (tau, name) := param
+
+  -- TODO: make this cleaner. why are we creating temp from name? seems dangerous
+  (translateTau tau, Temp.fromName name)
 
 def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
   match gdecl with
@@ -233,11 +242,11 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
     let (params', seededEnv) := List.foldr
       -- TODO: i don't really like this, since it assumes that in the downstream pass, function args will preserve temp.name and also
       -- explicitly emit %temp.name
-      (λ ((tau, varName), temp) (paramsAcc, envAcc) => ((translateTau tau, temp.name)::paramsAcc, envAcc.insert varName temp))
+      (λ ((tau, varName), temp) (paramsAcc, envAcc) => ((translateTau tau, temp)::paramsAcc, envAcc.insert varName temp))
       ([], {})
       paramsTemps
 
-    dbg_trace s!"{seededEnv.contains "n"}"
+    -- dbg_trace s!"{seededEnv.contains "n"}"
 
     let (cmds, _, _, _) := (List.foldl
       (λ (cmdsAcc, envAcc, tcAcc, lcAcc) mstm =>
@@ -252,6 +261,7 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
     , cmds)
 
 def translate (program : Ast.Program) : Tree.Program :=
+  -- dbg_trace s!"{Ast.Print.ppProgramRaw program}"
   List.map translateGdecl program
 
 end C0Boole.LLVM.Tree.Trans

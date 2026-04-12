@@ -9,6 +9,9 @@ abbrev TempCounter := Nat
 def TempCounter.bump tc :=
   tc + 1
 
+def Temp.fromName (name : String) : Temp :=
+  { name := s!"{name}"}
+
 def Temp.create (tc : TempCounter) : Temp :=
   { name := s!"t{tc}" }
 
