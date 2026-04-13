@@ -12,6 +12,24 @@ open Std.HashMap
 
 namespace C0Boole.LLVM.Codegen
 
+structure FunctionInfo where
+  retTau : IR.Tau
+  argsTau : List IR.Tau
+deriving Inhabited
+
+abbrev FEnv := Std.HashMap String FunctionInfo
+
+structure TempInfo where
+  temp : Temp
+  tau : IR.Tau
+  isPtr : Bool
+deriving Inhabited
+
+abbrev TEnv := Std.HashMap String TempInfo
+
+def ppTempInfo (tInfo : TempInfo) : String :=
+  s!"{tInfo.temp.name} : {IR.Print.ppTau tInfo.tau}"
+
 def translateBinOp : Tree.BinOp → IR.BinOp
   | .plus => .add
   | .sub => .sub
@@ -70,40 +88,17 @@ def isAtom : Tree.Expr → Bool
   | .const _ | .temp _ => true
   | _ => false
 
-structure FunctionInfo where
-  retTau : IR.Tau
-  argsTau : List IR.Tau
-deriving Inhabited
-
-abbrev FEnv := Std.HashMap String FunctionInfo
-
-structure TempInfo where
-  temp : Temp
-  tau : IR.Tau
-  isPtr : Bool
-deriving Inhabited
-
-abbrev TEnv := Std.HashMap String TempInfo
-
-def ppTempInfo (tInfo : TempInfo) : String :=
-  s!"{tInfo.temp.name} : {IR.Print.ppTau tInfo.tau}"
-
 def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TEnv): List IR.Stm × IR.Val × IR.Tau × TempCounter × TEnv :=
   match expr with
   | .const val =>
-    let (ptr, tc') := Temp.bumpAndCreate tc
-    let (temp, tc'') := Temp.bumpAndCreate tc'
-    ( [ .alloca (.ptr ptr) .i32
-      , .store .i32 (.bitVec (BitVec.ofInt 32 (Int32.toInt val))) (.ptr ptr)
-      , .load (.var temp) .i32 (.ptr ptr) ]
-    , .var temp
+    ( []
+    , .bitVec (BitVec.ofInt 32 (Int32.toInt val))
     , .i32
-    , tc''
+    , tc
     , tenv)
 
   | .temp var =>
-    -- Lookup var in env.
-    -- If it exists, use it.
+    -- Look-up var in env and if it exists, use it.
     -- Not existing in the env is an impossible case, since this implies it is used before
     -- being defined.
     match tenv.get? var.name with
@@ -206,7 +201,7 @@ def translateCmd
 : List IR.Stm × TempCounter × LabelCounter × TEnv :=
   match cmd with
   | .move dest src =>
-    -- transVal will be an atom (i.e., reg) at this point
+    -- transVal will be an atom (i.e., reg, imm) at this point
     let (stms, transVal, tau, tc', tenv') := translateExpr src tc fenv tenv
     let (stms', ptrOpt, tc'', tenv'') :=
       match tenv.get? dest.name with
@@ -227,29 +222,29 @@ def translateCmd
       | none =>
         match transVal with
         | .var t =>
-          dbg_trace s!"Didn't find {dest.name} in TEnv. Creating new ptr to house the src of the mov."
           let destTempInfo := TempInfo.mk t tau false
           ( stms
           , none
           , tc'
           , tenv'.insert dest.name destTempInfo)
-        | _ => panic! "[Error] after translating expr type, expect temp but found something else"
+
+        | .bitVec _ =>
+          let (ptr, tc'') := Temp.bumpAndCreate tc'
+          let destTempInfo := TempInfo.mk ptr tau true
+          ( stms ++ [ Stm.alloca (.ptr ptr) .i32 ]
+          , some ptr
+          , tc''
+          , tenv'.insert dest.name destTempInfo)
+
+        | _ => panic! "[Error] after translating expr type, expect REG/IMM but found something else"
 
     let destIsPtr := Option.isSome ptrOpt
-    match destIsPtr with
-    | true =>
-      ( stms' ++
-        [ .store tau transVal (.ptr ptrOpt.get!) ]
-      , tc''
-      , lc
-      , tenv'')
 
-    | false =>
-      ( stms'
-      , tc''
-      , lc
-      , tenv''
-      )
+    ( stms' ++
+      if destIsPtr then [ .store tau transVal (.ptr ptrOpt.get!) ] else []
+    , tc''
+    , lc
+    , tenv'')
 
   | .ite test thenBranch elseBranch =>
     let (stms, transTest, _, tc', tenv') := translateExpr test tc fenv tenv
@@ -303,7 +298,6 @@ def translateArgs (args : List Tree.Arg) : List IR.Arg := List.map translateArg 
 
 def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
   let (fname, tau, args, cmds) := fdefn
-  dbg_trace s!"Translating {fname} (Tree->IR)"
 
   -- TODO: once again, this is pretty dangerous, since it sort of breaks the Temp.bumpAndCreate invariant
   let seededTc := List.foldl

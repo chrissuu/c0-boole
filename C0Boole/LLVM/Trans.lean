@@ -13,7 +13,7 @@ open C0Boole.Utils.Temp
 
 abbrev TempEnv := Std.HashMap String Temp
 
--- TODO: consider wrapping env meta things into here
+-- TODO: consider wrapping env meta things into here / change to StateM
 structure Env where
   tempEnv : TempEnv
   tc : TempCounter
@@ -159,9 +159,9 @@ partial def translateStm
     let (cmdsTest, transTest, env', tc', lc') := translateExpr test env tc lc
     let (cmdsBody, env'', tc'', lc'') := translateStm body env' tc' lc'
 
-    let (labelGuard, lc''') := Label.bumpAndCreate lc''
-    let (labelBody, lc'''') := Label.bumpAndCreate lc'''
-    let (labelDone, lc''''') := Label.bumpAndCreate lc''''
+    let (labelGuard, lc''') := Label.bumpAndCreateNamed lc'' "cond"
+    let (labelBody, lc'''') := Label.bumpAndCreateNamed lc''' "body"
+    let (labelDone, lc''''') := Label.bumpAndCreateNamed lc'''' "end"
 
     ([ .goto labelGuard
        , .label labelGuard
@@ -242,7 +242,6 @@ def translateGdecl (gdecl : Ast.GDecl) : Tree.FunctionDef :=
       (λ ((tau, varName), temp) (paramsAcc, envAcc) => ((translateTau tau, temp)::paramsAcc, envAcc.insert varName temp))
       ([], {})
       paramsTemps
-
 
     let (cmds, _, _, _) := (List.foldl
       (λ (cmdsAcc, envAcc, tcAcc, lcAcc) mstm =>

@@ -1,14 +1,7 @@
-# Running `make labN` should place an executable compiler at `bin/c0c`.
-# Keep this interface for the 15-411 grading harness.
-
-.PHONY: default lab% bin clean
-
-default: lab3
-
-lab%: bin
-	lake build c0c
-	cp .lake/build/bin/c0c bin/c0c
-	chmod +x bin/c0c
+c0ll: bin
+	lake build c0ll
+	cp .lake/build/bin/c0ll bin/c0ll
+	chmod +x bin/c0ll
 
 bin:
 	mkdir -p bin
@@ -18,6 +11,6 @@ clean:
 	lake clean
 
 nocache:
-	lake build --no-cache c0c
-	cp .lake/build/bin/c0c bin/c0c
-	chmod +x bin/c0c
+	lake build --no-cache c0ll
+	cp .lake/build/bin/c0ll bin/c0ll
+	chmod +x bin/c0ll
