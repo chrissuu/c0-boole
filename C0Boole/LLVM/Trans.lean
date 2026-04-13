@@ -13,7 +13,7 @@ open C0Boole.Utils.Temp
 
 abbrev TempEnv := Std.HashMap String Temp
 
--- TODO: consider wrapping env meta things into here
+-- TODO: consider wrapping env meta things into here / change to StateM
 structure Env where
   tempEnv : TempEnv
   tc : TempCounter
