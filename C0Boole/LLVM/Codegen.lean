@@ -222,7 +222,6 @@ def translateCmd
       | none =>
         match transVal with
         | .var t =>
-          dbg_trace s!"Didn't find {dest.name} in TEnv. Creating new ptr to house the src of the mov."
           let destTempInfo := TempInfo.mk t tau false
           ( stms
           , none
@@ -299,7 +298,6 @@ def translateArgs (args : List Tree.Arg) : List IR.Arg := List.map translateArg 
 
 def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
   let (fname, tau, args, cmds) := fdefn
-  dbg_trace s!"Translating {fname} (Tree->IR)"
 
   -- TODO: once again, this is pretty dangerous, since it sort of breaks the Temp.bumpAndCreate invariant
   let seededTc := List.foldl
