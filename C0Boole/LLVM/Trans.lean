@@ -194,6 +194,8 @@ partial def translateStm
     , tc''
     , lc'')
 
+  | .incr _ | .decr _ => panic! "[Error] incr/decr ops should have been elaborated away at this point but found in Trans"
+
   -- TODO: weave in type info into TempEnv
   | .declare varName _ value =>
     let (temp, tc') := Temp.bumpAndCreate tc
@@ -222,6 +224,7 @@ def translateTau : Ast.Tau → Tree.Tau
   | .int | .char | .bool => .int
   | .string => panic! "[Error] strings are not yet handled"
   | .void => .void
+  | .typeName name => panic! s!"[Error] typeNames (`{name}`) should have been elaborated away but found in Trans"
 
 def translateParam (param : Ast.Param) : Tree.Arg :=
   let (tau, name) := param

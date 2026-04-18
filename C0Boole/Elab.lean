@@ -23,9 +23,13 @@ Author: Chris Su <chrjs@cmu.edu>
 
 import C0Boole.Ast
 import C0Boole.Utils.SrcSpan
+import Std.Data.HashMap
 
 open C0Boole.Ast
 open C0Boole.Utils.SrcSpan
+open Std.HashMap
+
+abbrev Env := Std.HashMap String Tau
 
 namespace C0Boole.Elab
 partial def countUnopOfType (acc : Nat) (type : UnOp) (mexp : MarkedExpr) :=
@@ -68,8 +72,7 @@ partial def elabMExpr (mexp : MarkedExpr) :=
 
       -- parity collapsing for this is probably not safe to do, so for now ignore parity collapsing
     | .negative => mkElabExpr (.binop .sub (mkElabExpr (.intLit 0) mexp.span) (elabMExpr mexp')) mexp.span
-    | .decr => mkElabExpr (.binop .sub (elabMExpr mexp') (mkElabExpr (.intLit 1) mexp.span)) mexp.span
-    | .incr => mkElabExpr (.binop .plus (elabMExpr mexp') (mkElabExpr (.intLit 1) mexp.span)) mexp.span
+
   | .ternary test thenBranch elseBranch =>
     mkElabExpr (.ternary (elabMExpr test) (elabMExpr thenBranch) (elabMExpr elseBranch)) mexp.span
   | .call fname args =>
@@ -89,27 +92,49 @@ def assignOpToBinOp : AssignOp → Option BinOp
   | .shlEq => some .shl
   | .shrEq => some .shr
 
-partial def elabMStm (mstm : MarkedStm) :=
+partial def resolveTypeName (env : Env) (seen : Std.HashSet String) : Tau → Except String Tau
+  | .typeName name =>
+      if seen.contains name then
+        .error s!"cyclic typedef involving `{name}`"
+      else
+        match env.get? name with
+        | some tau => resolveTypeName env (seen.insert name) tau
+        | none => .error s!"unknown typedef `{name}`"
+  | tau => .ok tau
+
+def elabTypeName (env : Env) (tau : Tau) : Except String Tau :=
+  resolveTypeName env {} tau
+
+partial def elabMStm (env : Env) (mstm : MarkedStm) : Except String MarkedStm := do
   match mstm.node with
-  | .assign varName val => mkElabStm (.assign varName (elabMExpr val)) mstm.span
+  | .assign varName val => .ok (mkElabStm (.assign varName (elabMExpr val)) mstm.span)
   | .ifLit test thenBranch elseBranch =>
-    mkElabStm (.ifLit (elabMExpr test) (elabMStm thenBranch) (elabMStm elseBranch)) mstm.span
-  | .whileLit test body => mkElabStm (.whileLit (elabMExpr test) (elabMStm body)) mstm.span
+    let thenBranch' ← elabMStm env thenBranch
+    let elseBranch' ← elabMStm env elseBranch
+    .ok (mkElabStm (.ifLit (elabMExpr test) thenBranch' elseBranch') mstm.span)
+  | .whileLit test body =>
+    let body' ← elabMStm env body
+    .ok (mkElabStm (.whileLit (elabMExpr test) body') mstm.span)
   | .ret valOpt =>
     match valOpt with
-    | some val => mkElabStm (.ret (some (elabMExpr val))) mstm.span
-    | none => mkElabStm (.ret none) mstm.span
+    | some val => .ok (mkElabStm (.ret (some (elabMExpr val))) mstm.span)
+    | none => .ok (mkElabStm (.ret none) mstm.span)
   | .seq first rest =>
+    let first' ← elabMStm env first
+    let rest' ← elabMStm env rest
     let span := spanCoverOpt first.span rest.span
-    mkElabStm (.seq (elabMStm first) (elabMStm rest)) span
-  | .declare varName tau value => mkElabStm (.declare varName tau (elabMStm value)) mstm.span
+    .ok (mkElabStm (.seq first' rest') span)
+  | .declare varName tau value =>
+    let t ← elabTypeName env tau
+    let value' ← elabMStm env value
+    .ok (mkElabStm (.declare varName t value') mstm.span)
   | .asop varName op value =>
     match assignOpToBinOp op with
-    | none => mkElabStm (.assign varName (elabMExpr value)) mstm.span
+    | none => .ok (mkElabStm (.assign varName (elabMExpr value)) mstm.span)
     | some binop =>
       let lhs := mkElabExpr (.var varName) mstm.span
       let rhs := mkElabExpr (.binop binop lhs (elabMExpr value)) mstm.span
-      mkElabStm (.assign varName rhs) mstm.span
+      .ok (mkElabStm (.assign varName rhs) mstm.span)
   | .forLit init test update body =>
     let bodySpan := spanCoverOpt body.span update.span
     let whileSpan := spanCoverOpt test.span bodySpan
@@ -117,11 +142,21 @@ partial def elabMStm (mstm : MarkedStm) :=
     let desugaredBody := mkElabStm (.seq body update) bodySpan
     let desugaredWhile := mkElabStm (.whileLit test desugaredBody) whileSpan
     let desugaredFor := mkElabStm (.seq init desugaredWhile) forSpan
-    elabMStm desugaredFor
-  | .expr e => mkElabStm (.expr (elabMExpr e)) mstm.span
-  | .assert test => mkElabStm (.assert (elabMExpr test)) mstm.span
-  | .error e => mkElabStm (.error (elabMExpr e)) mstm.span
-  | _ => mstm
+    elabMStm env desugaredFor
+  | .expr e => .ok (mkElabStm (.expr (elabMExpr e)) mstm.span)
+  | .assert test => .ok (mkElabStm (.assert (elabMExpr test)) mstm.span)
+  | .error e => .ok (mkElabStm (.error (elabMExpr e)) mstm.span)
+  | .incr varName =>
+    let lhs := mkElabExpr (.var varName) mstm.span
+    let one := mkElabExpr (.intLit 1) mstm.span
+    let rhs := mkElabExpr (.binop .plus lhs one) mstm.span
+    .ok (mkElabStm (.assign varName rhs) mstm.span)
+  | .decr varName =>
+    let lhs := mkElabExpr (.var varName) mstm.span
+    let one := mkElabExpr (.intLit 1) mstm.span
+    let rhs := mkElabExpr (.binop .sub lhs one) mstm.span
+    .ok (mkElabStm (.assign varName rhs) mstm.span)
+  | _ => .ok mstm
 
 def elabMAnno (a : MarkedAnno) :=
   match a.node with
@@ -130,14 +165,42 @@ def elabMAnno (a : MarkedAnno) :=
   | .asserts e => mkElabAnno (.asserts (elabMExpr e)) a.span
   | .loopInvariant e => mkElabAnno (.loopInvariant (elabMExpr e)) a.span
 
-def elabGDecl (gdecl : GDecl) : GDecl :=
+def elabParams (params : List Param) (env : Env) : Except String (List Param) :=
+  List.mapM (λ (tau, paramName) => do
+    let tau' ← elabTypeName env tau
+    .ok (tau', paramName))
+  params
+
+def elabGDecl (gdecl : GDecl) (env : Env) : Except String (GDecl × Env) :=
   match gdecl with
   | .fdefn retType fname params body annotations =>
-    .fdefn retType fname params (List.map elabMStm body) (List.map elabMStm annotations)
-  | _ => gdecl
+    do
+      let retType' ← elabTypeName env retType
+      let params' ← elabParams params env
+      let body' ← List.mapM (elabMStm env) body
+      let annotations' ← List.mapM (elabMStm env) annotations
+      .ok
+        ( .fdefn retType' fname params' body' annotations'
+        , env
+        )
+  | .typedef tau alias =>
+    match elabTypeName (env.insert alias tau) tau with
+    | .ok t => .ok (.typedef t alias, env.insert alias t)
+    | .error err => .error err
+  | _ => .ok (gdecl, env)
 
--- TODO: write a pass which converts typedefs using an env
 def elabProgram (program : Ast.Program) : Except String Ast.Program :=
-  .ok (List.map elabGDecl program)
+  match List.foldlM
+    (m := Except String)
+    (λ (progAcc, envAcc, lineNum) gdecl => do
+      let (elabbedGdecl, envAcc') ← elabGDecl gdecl envAcc
+      dbg_trace s!"Line {lineNum} is ok!"
+      let isFdefn := match elabbedGdecl with | .fdefn _ _ _ _ _ => true | _ => false
+      pure (if isFdefn then elabbedGdecl::progAcc else progAcc, envAcc', lineNum + 1))
+    ([], {}, 0)
+    program with
+  | .ok (elabbedProgram, _, _) =>
+    .ok (List.reverse elabbedProgram)
+  | .error err => .error err
 
 end C0Boole.Elab

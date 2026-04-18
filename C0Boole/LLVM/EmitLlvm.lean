@@ -110,8 +110,10 @@ def emitFdefn (fdefn : IR.FunctionDef) : String :=
         if indent then "\t" ++ rawEmitStm else rawEmitStm)
       |> String.intercalate "\n"
 
+  let fname' := if String.Slice.beq fname "main" then "_c0_main" else fname
+
   s!"define {emitTau tau} "
-  ++ s!"@{fname}({emitArgs args}) "
+  ++ s!"@{fname'}({emitArgs args}) "
   ++ "{"
   ++ "\n"
   ++ formattedEmitStm

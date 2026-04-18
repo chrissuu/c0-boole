@@ -5,6 +5,6 @@ import C0Boole.Token
 import C0Boole.Parse
 import C0Boole.Lexer
 import C0Boole.Elab
-import C0Boole.Typechecker
+import C0Boole.Type
 
 import C0Boole.LLVM
