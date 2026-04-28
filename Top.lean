@@ -27,8 +27,8 @@ structure CliConfig where
 
 private def usage : String :=
   String.intercalate "\n"
-    [ "usage: bin/c0c [-Olevel] [--emit=option] [-l header.h0] [--unsafe] infile.lN"
-    , "       bin/c0c -t infile.lN"
+    [ "usage: bin/c0ll [-Olevel] [--emit=option] [-l header.h0] [--unsafe] infile.lN"
+    , "       bin/c0ll -t infile.lN"
     , "       [--dump-tokens] [--dump-ast] [--dump-tree] [--dump-ir-raw]"
     ]
 

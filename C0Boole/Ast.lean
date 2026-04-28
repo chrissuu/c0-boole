@@ -49,8 +49,6 @@ inductive UnOp where
   | bang
   | bitNot
   | negative
-  | incr
-  | decr
 deriving BEq, DecidableEq, Inhabited
 
 inductive Tau where
@@ -59,6 +57,7 @@ inductive Tau where
   | string
   | bool
   | void
+  | typeName (name : String)
 deriving Inhabited
 
 mutual
@@ -116,6 +115,9 @@ inductive Stm where
   | error (e : MarkedExpr)
   | nop
   | annotation (a : MarkedAnno)
+
+  | incr (varName : String)
+  | decr (varName : String)
 deriving Inhabited
 
 structure MarkedStm where
@@ -173,8 +175,6 @@ def ppUnOp : UnOp → String
   | .bang => "!"
   | .bitNot => "~"
   | .negative => "-"
-  | .incr => "++"
-  | .decr => "--"
 
 def ppTau : Tau → String
   | .string => "string"
@@ -182,6 +182,7 @@ def ppTau : Tau → String
   | .int => "int"
   | .bool => "bool"
   | .void => "void"
+  | .typeName t => t
 
 private def indent (str : String) : String :=
   str.splitOn "\n"
@@ -273,6 +274,8 @@ partial def ppStm : Stm → String
       s!"{id} {ppAssignOp op} {ppMarkedExpr e};"
 
   | .annotation a => s!"{ppMarkedAnno a}"
+  | .incr id => s!"{id}++"
+  | .decr id => s!"{id}--"
 
 partial def ppMarkedStm (s : MarkedStm) : String :=
   ppStm s.node
@@ -337,6 +340,11 @@ partial def ppStmRaw (indentLevel : Nat) : Stm → String
       s!"{spaces indentLevel}Error({ppMarkedExpr e})"
   | .annotation a =>
       s!"{spaces indentLevel}Annotation({ppMarkedAnno a})"
+
+  | .incr id =>
+      s!"{spaces indentLevel}Incr({id})"
+  | .decr id =>
+      s!"{spaces indentLevel}Decr({id})"
 
 partial def ppMarkedStmRaw (indentLevel : Nat) (stm : MarkedStm) : String :=
   ppStmRaw indentLevel stm.node

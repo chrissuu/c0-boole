@@ -101,6 +101,22 @@ def parseIdent : P String :=
     | .ident name => some name
     | _ => none)
 
+def hexCharToNat (c : Char) : Nat :=
+  if '0' <= c && c <= '9' then c.toNat - '0'.toNat
+  else if 'a' <= c && c <= 'f' then c.toNat - 'a'.toNat + 10
+  else if 'A' <= c && c <= 'F' then c.toNat - 'A'.toNat + 10
+  else 0
+
+def hexStringToNat (s : String) : Nat :=
+  let s := if s.startsWith "0x" then s.drop 2 else s
+  s.foldl (fun acc c => acc * 16 + hexCharToNat c) 0
+
+def parseHexLit : P MarkedExpr :=
+  satisfyKind (fun
+    | .hexLit s => some (mkExpr (.intLit (Int32.ofNat (hexStringToNat s))))
+    | _ => none
+  )
+
 def parseIntLit : P MarkedExpr :=
   satisfyKind (fun
     | .intLit n => some (mkExpr (.intLit (Int32.ofInt n)))
@@ -128,6 +144,7 @@ partial def parseParenExpr : P MarkedExpr := do
 partial def parseAtom : P MarkedExpr :=
   first [
     parseParenExpr,
+    parseHexLit,
     parseIntLit,
     parseBoolLit,
     parseFCall,
@@ -141,8 +158,6 @@ partial def parseUnOp : P UnOp :=
     | .squiggly => some .bitNot
     | .sub => some .negative
     | .negative => some .negative
-    | .incr => some .incr
-    | .decr => some .decr
     | _ => none)
 
 partial def parseMulOp : P BinOp :=
@@ -313,6 +328,31 @@ partial def parseExpr : P MarkedExpr :=
 
 end
 
+def parseIncr : P MarkedStm := do
+  -- TODO: must change this to lvalue
+  let idTok ← expectKindTokMsg (fun | .ident _ => true | _ => false) "expected identifier"
+  let incrTok ← expectKindTokMsg (only .incr) "expected '++' after identifier"
+  let varName :=
+    match idTok.kind with
+      | .ident name => name
+      | _ => ""
+
+  pure { node := .incr varName
+       , span := some (spanFromTokenBounds idTok incrTok)
+       }
+
+def parseDecr : P MarkedStm := do
+  -- TODO: must change this to lvalue
+  let idTok ← expectKindTokMsg (fun | .ident _ => true | _ => false) "expected identifier"
+  let decrTok ← expectKindTokMsg (only .decr) "expected '++' after identifier"
+  let varName :=
+    match idTok.kind with
+      | .ident name => name
+      | _ => ""
+  pure { node := .decr varName
+       , span := some (spanFromTokenBounds idTok decrTok)
+       }
+
 def parseReturnStm : P MarkedStm := do
   let kwTok ← expectKindTokMsg (only .kwReturn) "expected 'return'"
   let value? ← option? parseExpr
@@ -343,6 +383,7 @@ def parseTau : P Tau :=
     | .kwInt => some .int
     | .kwBool => some .bool
     | .kwVoid => some .void
+    | .ident name => some (.typeName name)
     | _ => none)
 
 def parseVarDefnCore : P MarkedStm := do
@@ -381,7 +422,10 @@ def parseSimpleCore : P MarkedStm :=
   withErrorMessage "while parsing simple statement" <|
     (parseVarDeclCore
     <|> parseAssignCore
+    <|> parseIncr
+    <|> parseDecr
     <|> parseExprCore)
+
 
 def parseSimpleStm : P MarkedStm := do
   let (s, coreSpan) ← withConsumedSpan parseSimpleCore
@@ -514,12 +558,13 @@ partial def parseNonSimpleStm : P MarkedStm :=
     <|> parseForStm
     <|> parseReturnStm
     <|> parseAnnotationStm
+    <|> parseSimpleStm
     <|> parseAssertStm
     <|> parseErrorStm)
 
 partial def parseStm : P MarkedStm :=
   withErrorMessage "while parsing statement" <|
-    (parseNonSimpleStm <|> parseSimpleStm)
+    (parseNonSimpleStm)
 end
 
 def parseTypedef : P GDecl := do
@@ -550,18 +595,21 @@ def parseFdecl : P GDecl := do
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function declaration"
-  let params ← parseParams
+  let paramsOpt ← option? parseParams
+  let params := paramsOpt.getD []
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function declaration"
   let _ ← expectKindTokMsg (only .semicolon) "expected ';' after function declaration"
   pure (.fdecl tau fname params annotations)
 
 def parseFdefn : P GDecl := do
-  let annosRev ← Parser.foldl (fun acc anno => anno :: acc) [] parseSingleAnnotation
+  let annosRevOpt ← option? (Parser.foldl (fun acc anno => anno :: acc) [] parseSingleAnnotation)
+  let annosRev := annosRevOpt.getD []
   let annotations := annosRev.reverse.map (fun a => ({ node := .annotation a, span := a.span } : MarkedStm))
   let tau ← parseTau
   let fname ← parseIdent
   let _ ← expectKindTokMsg (only .lParen) "expected '(' in function definition"
-  let params ← parseParams
+  let paramsOpt ← option? parseParams
+  let params := paramsOpt.getD []
   let _ ← expectKindTokMsg (only .rParen) "expected ')' in function definition"
   let _ ← expectKindTokMsg (only .lBrace) "expected '{' to start function body"
   let stms ← Parser.foldl (fun acc stm => stm :: acc) [] parseStm
@@ -588,4 +636,6 @@ def parseGdeclFromTokens (tokens : List Tok) : Except String GDecl :=
   runParser parseGdecl tokens
 
 def parseProgramFromTokens (tokens : List Tok) : Except String Program := do
-  runParser (Parser.foldl (fun acc decl => decl :: acc) [] parseGdecl) tokens
+  match runParser (Parser.foldl (fun acc decl => decl :: acc) [] parseGdecl) tokens with
+  | .ok program => .ok (List.reverse program)
+  | .error e => .error e

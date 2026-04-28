@@ -19,6 +19,17 @@ structure Env where
   tc : TempCounter
   lc : LabelCounter
 
+def defaultValOfTau : Ast.Tau → Tree.Expr
+  | .int => .const .int 0
+  | .bool => .const .bool 0
+  | .void => .const .void 0
+
+  -- TODO
+  | .char
+  | .string
+  | .typeName _ => .const .int 0
+
+
 def translateBinOp (op: Ast.BinOp) : Tree.BinOp :=
   match op with
   | .plus => .plus
@@ -55,7 +66,7 @@ partial def translateExpr
       let (temp, tc') := Temp.bumpAndCreate tc
       ([], .temp temp, env.insert name temp, tc', lc)
 
-  | .intLit val => ([], .const val, env, tc, lc)
+  | .intLit val => ([], .const .int val, env, tc, lc)
 
   | .binop op lhs rhs =>
     let (tempRes, tc') := Temp.bumpAndCreate tc
@@ -81,27 +92,31 @@ partial def translateExpr
 
     let (cmdsThen, transThen, env'', tc''', lc''') := translateExpr thenVal env' tc'' lc'''
     let (cmdsElse, transElse, env''', tc'''', lc'''') := translateExpr elseVal env'' tc''' lc'''
+    let (labelDone, lc''''') := Label.bumpAndCreate lc''''
 
     (cmdsTest
     ++ [.ite transTest labelThen labelElse]
     ++ [.label labelThen]
     ++ cmdsThen
+    ++ [.goto labelDone]
     ++ [.move tempRes transThen]
     ++ [.label labelElse]
     ++ cmdsElse
+    ++ [.goto labelDone]
     ++ [.move tempRes transElse]
+    ++ [.label labelDone]
 
     , .temp tempRes
     , env'''
     , tc''''
-    , lc''''
+    , lc'''''
     )
 
-  | .trueLit => ([], .const 1, env, tc, lc)
-  | .falseLit => ([], .const 0, env, tc, lc)
+  | .trueLit => ([], .const .bool 1, env, tc, lc)
+  | .falseLit => ([], .const .bool 0, env, tc, lc)
 
   -- TODO: fix this. definitely not the correct handling of chars
-  | .charLit c => ([], .const (Int32.ofNat c.toNat), env, tc, lc)
+  | .charLit c => ([], .const .int (Int32.ofNat c.toNat), env, tc, lc)
 
   | .call fname args =>
     let (argCmds, argExps, env', tc', lc') := List.foldr
@@ -115,10 +130,10 @@ partial def translateExpr
     (argCmds ++ [.move tempRes (.call fname argExps)], .temp tempRes, env', tc'', lc')
 
   -- TODO
-  | .length _ => ([], .const 0, env, tc, lc)
-  | .result => ([], .const 0, env, tc, lc)
-  | .hastag => ([], .const 0, env, tc, lc)
-  | .stringLit _ => ([], .const 0, env, tc, lc)
+  | .length _ => ([], .const .int 0, env, tc, lc)
+  | .result => ([], .const .int 0, env, tc, lc)
+  | .hastag => ([], .const .int 0, env, tc, lc)
+  | .stringLit _ => ([], .const .int 0, env, tc, lc)
 
 partial def translateStm
   (mstm : Ast.MarkedStm)
@@ -143,16 +158,21 @@ partial def translateStm
 
     let (labelThen, lc'''') := Label.bumpAndCreate lc'''
     let (labelElse, lc''''') := Label.bumpAndCreate lc''''
+    let (labelDone, lc'''''') := Label.bumpAndCreate lc'''''
 
     (cmdsTest
     ++ [.ite transTest labelThen labelElse]
     ++ [.label labelThen]
     ++ cmdsThen
+    ++ [.goto labelDone]
     ++ [.label labelElse]
+    -- TODO: if this is empty, consider not emitting
     ++ cmdsElse
+    ++ [.goto labelDone]
+    ++ [.label labelDone]
     , env'''
     , tc'''
-    , lc'''''
+    , lc''''''
     )
 
   | .whileLit test body =>
@@ -164,15 +184,13 @@ partial def translateStm
     let (labelDone, lc''''') := Label.bumpAndCreateNamed lc'''' "end"
 
     ([ .goto labelGuard
-       , .label labelGuard
-       ]
+    , .label labelGuard]
     ++ cmdsTest
     ++ [ .ite transTest labelBody labelDone
        , .label labelBody]
     ++ cmdsBody
     ++ [ .goto labelGuard
-       , .label labelDone
-       ]
+       , .label labelDone]
     , env''
     , tc''
     , lc''''')
@@ -194,15 +212,18 @@ partial def translateStm
     , tc''
     , lc'')
 
+  | .incr _ | .decr _ => panic! "[Error] incr/decr ops should have been elaborated away at this point but found in Trans"
+
   -- TODO: weave in type info into TempEnv
   | .declare varName _ value =>
     let (temp, tc') := Temp.bumpAndCreate tc
     let (cmdsValue, env', tc'', lc') := translateStm value (env.insert varName temp) tc' lc
     (cmdsValue, env'.insert varName temp, tc'', lc')
 
-  | .defn varName _ =>
+  | .defn varName tau =>
     let (temp, tc') := Temp.bumpAndCreate tc
-    ([], env.insert varName temp, tc', lc)
+    let defaultVal := defaultValOfTau tau
+    ([.move temp defaultVal], env.insert varName temp, tc', lc)
 
   | .asop _ _ _ => panic! "[Error] asops should have been elaborated away but found in translateStm"
   | .forLit _ _ _ _ => panic! "[Error] for should have been elaborated away but found in translateStm"
@@ -219,9 +240,11 @@ partial def translateStm
   | .annotation _ => panic! "[Error] unimplemented (annotation)"
 
 def translateTau : Ast.Tau → Tree.Tau
-  | .int | .char | .bool => .int
+  | .int | .char => .int
+  | .bool => .bool
   | .string => panic! "[Error] strings are not yet handled"
   | .void => .void
+  | .typeName name => panic! s!"[Error] typeNames (`{name}`) should have been elaborated away but found in Trans"
 
 def translateParam (param : Ast.Param) : Tree.Arg :=
   let (tau, name) := param

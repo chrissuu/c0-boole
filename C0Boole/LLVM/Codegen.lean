@@ -85,15 +85,20 @@ def tauOfBinOp : Tree.BinOp → IR.Tau
   | .neq => .i1
 
 def isAtom : Tree.Expr → Bool
-  | .const _ | .temp _ => true
+  | .const _ _ | .temp _ => true
   | _ => false
+
+def translateTau : Tree.Tau → IR.Tau
+  | .int => .i32
+  | .bool => .i1
+  | .void => .void
 
 def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TEnv): List IR.Stm × IR.Val × IR.Tau × TempCounter × TEnv :=
   match expr with
-  | .const val =>
+  | .const tau val =>
     ( []
     , .bitVec (BitVec.ofInt 32 (Int32.toInt val))
-    , .i32
+    , translateTau tau
     , tc
     , tenv)
 
@@ -160,11 +165,6 @@ def translateExpr (expr : Tree.Expr) (tc : TempCounter) (fenv : FEnv) (tenv : TE
       , tc''
       , tenv'
       )
-
-def translateTau : Tree.Tau → IR.Tau
-  | .int => .i32
-  | .bool => .i1
-  | .void => .void
 
 def mkFenv (program : Tree.Program) : FEnv :=
   List.foldl
@@ -331,6 +331,7 @@ def translateFdefn (fdefn : Tree.FunctionDef) (fenv : FEnv) : IR.FunctionDef :=
   , translateTau tau
   , translateArgs args
   , transCmds)
+
 
 def translate (program : Tree.Program) : IR.Program :=
   let fenvInit := mkFenv program
