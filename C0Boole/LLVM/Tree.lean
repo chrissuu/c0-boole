@@ -33,8 +33,17 @@ inductive BinOp where
   | shr
 deriving Inhabited
 
+inductive Tau where
+  | int
+  | bool
+  | void
+deriving Inhabited
+
 inductive Expr where
-  | const (val : Int32)
+  -- TODO: consider changing val type to val opt type to support voids
+  -- eventually, will have to move this type to something more expressive
+  -- than ints to be able to support chars/strings/etc
+  | const (tau : Tau) (val : Int32)
   | temp (t : Temp)
   | binop (op : BinOp) (lhs : Expr) (rhs : Expr)
   | call (fname : String) (args : List Expr)
@@ -46,12 +55,6 @@ inductive Command where
   | goto (label : Label)
   | label (l : Label)
   | ret (valOpt : Option Expr)
-deriving Inhabited
-
-inductive Tau where
-  | int
-  | bool
-  | void
 deriving Inhabited
 
 abbrev Arg := Tau × Temp
@@ -91,7 +94,8 @@ def ppArg (arg : Arg) : String :=
   s!"{ppTau tau} {temp.name}"
 
 partial def ppExpr : Expr → String
-  | .const val => toString val
+  -- TODO: print the type of the const?
+  | .const _ val => toString val
   | .temp t => t.name
   | .binop op lhs rhs => s!"({ppExpr lhs} {ppBinOp op} {ppExpr rhs})"
   | .call fname args => s!"call {fname}({String.intercalate ", " (List.map ppExpr args)})"
@@ -116,8 +120,8 @@ def ppProgram (program : Program) : String :=
 
 mutual
 partial def ppExprRaw (indentLevel : Nat) : Expr → String
-  | .const val =>
-      s!"{spaces indentLevel}Const({val})"
+  | .const tau val =>
+      s!"{spaces indentLevel}Const({val}):{ppTau tau}"
   | .temp t =>
       s!"{spaces indentLevel}Temp({t.name})"
   | .binop op lhs rhs =>
