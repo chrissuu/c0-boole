@@ -166,7 +166,7 @@ partial def translateStm
     ++ cmdsThen
     ++ [.goto labelDone]
     ++ [.label labelElse]
-    -- TODO: if this is empty, consider not emitting
+    -- TODO: if this is empty, consider not emitting to remove redundant labels
     ++ cmdsElse
     ++ [.goto labelDone]
     ++ [.label labelDone]
