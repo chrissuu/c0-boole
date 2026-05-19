@@ -82,7 +82,7 @@ private def parseArgs : List String → CliConfig → Except String CliConfig
         | none => parseArgs rest { cfg with infile := some arg }
         | some _ => .error s!"multiple input files provided: {arg}"
 
-private def runFrontend (cfg : CliConfig) (infile : String) : IO (Except String C0C.LLVM.IR.Program) := do
+private def runFrontend (cfg : CliConfig) (infile : String) : IO (Except String (Option C0C.LLVM.IR.Program)) := do
   let source ← IO.FS.readFile infile
   match C0C.Lexer.munch infile source with
   | .error err => pure (.error err)
@@ -104,13 +104,16 @@ private def runFrontend (cfg : CliConfig) (infile : String) : IO (Except String 
               match C0C.Typechecker.tc elabbedProgram with
               | .error err => pure (.error err)
               | .ok _ =>
-                  let treeProgram := C0C.LLVM.Tree.Trans.translate elabbedProgram
-                  if cfg.dumpTree then
-                    IO.println (C0C.LLVM.Tree.Print.ppProgram treeProgram)
-                  let llvmIR := C0C.LLVM.Codegen.translate treeProgram
-                  if cfg.dumpIrRaw then
-                    IO.println (C0C.LLVM.IR.Print.ppProgramRaw llvmIR)
-                  pure (.ok llvmIR)
+                  if cfg.typecheckOnly then
+                    pure (.ok none)
+                  else
+                    let treeProgram := C0C.LLVM.Tree.Trans.translate elabbedProgram
+                    if cfg.dumpTree then
+                      IO.println (C0C.LLVM.Tree.Print.ppProgram treeProgram)
+                    let llvmIR := C0C.LLVM.Codegen.translate treeProgram
+                    if cfg.dumpIrRaw then
+                      IO.println (C0C.LLVM.IR.Print.ppProgramRaw llvmIR)
+                    pure (.ok (some llvmIR))
 
 def main (args : List String) : IO UInt32 := do
   let cfgE := parseArgs args {}
@@ -131,10 +134,9 @@ def main (args : List String) : IO UInt32 := do
   | .error err =>
       IO.eprintln err
       return 1
-  | .ok llvmIR =>
-      if cfg.typecheckOnly then
-        return 0
-      else
+  | .ok none =>
+      return 0
+  | .ok (some llvmIR) =>
         match cfg.emit with
         | .llvm =>
             C0C.LLVM.EmitLlvm.emit llvmIR (infile ++ ".ll")

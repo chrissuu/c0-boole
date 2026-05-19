@@ -144,8 +144,13 @@ partial def elabMStm (env : Env) (mstm : MarkedStm) : Except String MarkedStm :=
     let forSpan := spanCoverOpt init.span whileSpan
     let desugaredBody := mkElabStm (.seq body update) bodySpan
     let desugaredWhile := mkElabStm (.whileLit test desugaredBody) whileSpan
-    let desugaredFor := mkElabStm (.seq init desugaredWhile) forSpan
-    elabMStm env desugaredFor
+    match init.node with
+    | .declare varName tau initBody =>
+      let scopedFor := mkElabStm (.declare varName tau (mkElabStm (.seq initBody desugaredWhile) forSpan)) forSpan
+      elabMStm env scopedFor
+    | _ =>
+      let desugaredFor := mkElabStm (.seq init desugaredWhile) forSpan
+      elabMStm env desugaredFor
   | .expr e => .ok (mkElabStm (.expr (elabMExpr e)) mstm.span)
   | .assert test => .ok (mkElabStm (.assert (elabMExpr test)) mstm.span)
   | .error e => .ok (mkElabStm (.error (elabMExpr e)) mstm.span)

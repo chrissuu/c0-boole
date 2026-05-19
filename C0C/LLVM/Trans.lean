@@ -218,7 +218,7 @@ partial def translateStm
   | .declare varName _ value =>
     let (temp, tc') := Temp.bumpAndCreate tc
     let (cmdsValue, env', tc'', lc') := translateStm value (env.insert varName temp) tc' lc
-    (cmdsValue, env'.insert varName temp, tc'', lc')
+    (cmdsValue, env'.erase varName, tc'', lc')
 
   | .defn varName tau =>
     let (temp, tc') := Temp.bumpAndCreate tc

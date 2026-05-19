@@ -23,14 +23,77 @@ def collectFEnv (program : Ast.Program) : FEnv :=
       | _ => env)
     {}
 
+def collectFnNames (program : Ast.Program) : List String :=
+  program.filterMap
+    (fun gdecl =>
+      match gdecl with
+      | .fdecl (fname := fname) .. =>
+        some fname
+      | .fdefn (fname := fname) .. =>
+        some fname
+      | _ => none
+    )
+
+def tcMainFn (program : Ast.Program) : Except String Unit := do
+  let fnNames := collectFnNames program
+  let mainFns := fnNames.filter (λ fname => fname == "main")
+  let _ ← match List.length mainFns with
+    | 0 => .error "Could not find a main function"
+    | 1 => .ok ()
+    | _ => .error "Found more than one main function"
+  let fenv := collectFEnv program
+  match fenv.get? "main" with
+  | some info =>
+    if info.params.isEmpty then
+      .ok ()
+    else
+      .error "main function must not take parameters"
+
+  -- TODO: this case should never happen, consider panicking
+  | none => .error "Could not find a main function"
+
 structure VarInfo where
   name : String
   varType : Tau
+  initialized : Bool
 
 abbrev VEnv := Std.HashMap String VarInfo
 
-def insertVEnv (venv : VEnv) (name : String) (varType : Tau) : VEnv :=
-  venv.insert name { name := name, varType := varType }
+def insertVEnv (venv : VEnv) (name : String) (varType : Tau) (initialized : Bool) : VEnv :=
+  venv.insert name { name := name, varType := varType, initialized := initialized }
+
+def markVEnvInitialized (venv : VEnv) (name : String) : Except String VEnv :=
+  match venv.get? name with
+  | some info => .ok (venv.insert name { info with initialized := true })
+  | none => .error s!"variable {name} used before decl"
+
+def tcVarDeclared (venv : VEnv) (name : String) : Except String VarInfo :=
+  match venv.get? name with
+  | some info => .ok info
+  | none => .error s!"variable {name} used before decl"
+
+def tcVarReadable (venv : VEnv) (name : String) : Except String VarInfo :=
+  match venv.get? name with
+  | some info =>
+    if info.initialized then
+      .ok info
+    else
+      .error s!"variable {name} used before initialized"
+  | none => .error s!"Used {name} before defined"
+
+def mergeVEnvAfterBranches (before thenEnv elseEnv : VEnv) : VEnv :=
+  before.toList.foldl
+    (fun env (name, info) =>
+      match thenEnv.get? name, elseEnv.get? name with
+      | some thenInfo, some elseInfo =>
+          env.insert name { info with initialized := info.initialized || (thenInfo.initialized && elseInfo.initialized) }
+      | _, _ => env)
+    before
+
+def initializeAllVEnv (venv : VEnv) : VEnv :=
+  venv.toList.foldl
+    (fun env (name, info) => env.insert name { info with initialized := true })
+    venv
 
 def minInt32 : Int := -2147483648
 
@@ -77,9 +140,8 @@ def binopType : BinOp → Tau
 partial def tcExprType (mexpr : Ast.MarkedExpr) (venv : VEnv) : Except String Tau := do
   match mexpr.node with
   | .var name =>
-    match venv.get? name with
-    | some info => .ok info.varType
-    | none => .error s!"Used {name} before defined"
+    let info ← tcVarReadable venv name
+    .ok info.varType
   | .intLit n =>
     let _ ← tcIntLitRange n
     .ok .int
@@ -97,7 +159,10 @@ partial def tcExprType (mexpr : Ast.MarkedExpr) (venv : VEnv) : Except String Ta
     | .bang => .ok .bool
     | .bitNot
     | .negative => .ok .int
-  | .ternary _ thenVal elseVal =>
+  | .ternary test thenVal elseVal =>
+    let testType ← tcExprType test venv
+    if not (tauEq testType .bool) then
+      .error "ternary condition must have type Tau.bool"
     let thenType ← tcExprType thenVal venv
     let elseType ← tcExprType elseVal venv
     if tauEq thenType elseType then
@@ -113,12 +178,27 @@ partial def tcExprType (mexpr : Ast.MarkedExpr) (venv : VEnv) : Except String Ta
   | .hastag =>
     .error "Cannot infer type for annotation-only expression"
 
+def tcExprHasType (mexpr : Ast.MarkedExpr) (venv : VEnv) (expected : Tau) (ctx : String) :
+    Except String Unit := do
+  let actual ← tcExprType mexpr venv
+  if tauEq actual expected then
+    .ok ()
+  else
+    .error s!"{ctx} must have type {Ast.Print.ppTau expected}"
+
+def tcAssignVar (venv : VEnv) (varName : String) (val : Ast.MarkedExpr) : Except String VEnv := do
+  let varInfo ← tcVarDeclared venv varName
+  let actualType ← tcExprType val venv
+  if tauEq varInfo.varType actualType then
+    markVEnvInitialized venv varName
+  else
+    .error s!"assigning to {varName} an expression of different type"
+
 partial def tcMExpr (mexpr : Ast.MarkedExpr) (venv : VEnv) : Except String Unit := do
   match mexpr.node with
   | .var name =>
-    if venv.contains name then
-      .ok ()
-    else .error s!"Used {name} before defined"
+    let _ ← tcVarReadable venv name
+    .ok ()
   | .binop _ lhs rhs =>
     let _ ← tcMExpr lhs venv
     let _ ← tcMExpr rhs venv
@@ -153,71 +233,51 @@ partial def tcMExpr (mexpr : Ast.MarkedExpr) (venv : VEnv) : Except String Unit 
 partial def tcMStm (mstm : Ast.MarkedStm) (venv : VEnv) : Except String VEnv := do
   match mstm.node with
   | .assign varName val =>
-    if not (venv.contains varName) then
-      .error s!"variable {varName} used before decl"
-
-    let _ ← tcMExpr val venv
-    .ok venv
+    tcAssignVar venv varName val
 
   | .ifLit test thenBranch elseBranch =>
-    let _ ← tcMExpr test venv
-    let venv' ← tcMStm thenBranch venv
-    let venv'' ← tcMStm elseBranch venv'
-    .ok venv''
+    let _ ← tcExprHasType test venv .bool "if condition"
+    let thenEnv ← tcMStm thenBranch venv
+    let elseEnv ← tcMStm elseBranch venv
+    .ok (mergeVEnvAfterBranches venv thenEnv elseEnv)
 
   | .whileLit test body =>
-    let _ ← tcMExpr test venv
-    tcMStm body venv
+    let _ ← tcExprHasType test venv .bool "while condition"
+    let _ ← tcMStm body venv
+    .ok venv
 
   | .declare varName varType value =>
     if venv.contains varName then
       .error s!"variable {varName} declared more than once"
-
-    match value.node with
-    -- we need to be able to handle shapes like:
-    -- .declare x tau (.assign x rhs), while correctly handling (rejecting)
-    -- programs with stms such as `int x = x;`, where x is declared for the first time.
-
-    -- TODO: maybe there's a cleaner way to do this.
-    | .assign assignedName val =>
-      if assignedName == varName then
-        let _ ← tcMExpr val venv
-        .ok (insertVEnv venv varName varType)
-      else
-        .error s!"declaration initializer assigned {assignedName}, expected {varName}"
-    | .nop =>
-      .ok (insertVEnv venv varName varType)
-    | _ =>
-      let _ ← tcMStm value venv
-      .ok (insertVEnv venv varName varType)
+    let venv' := insertVEnv venv varName varType false
+    let venv'' ← tcMStm value venv'
+    .ok (venv''.erase varName)
 
   | .defn varName varType =>
     if venv.contains varName then
       .error s!"variable {varName} declared more than once"
 
-    .ok (insertVEnv venv varName varType)
+    .ok (insertVEnv venv varName varType false)
 
   | .ret valOpt =>
     match valOpt with
     | some val =>
       let _ ← tcMExpr val venv
-      .ok venv
-    | none => .ok venv
+      .ok (initializeAllVEnv venv)
+    | none => .ok (initializeAllVEnv venv)
 
   | .seq first rest =>
     let venv' ← tcMStm first venv
     tcMStm rest venv'
 
   | .asop varName _ value =>
-    if venv.contains varName then
-      let _ ← tcMExpr value venv
-      .ok venv
-    else
-      .error s!"Used {varName} before defined"
+    let _ ← tcVarReadable venv varName
+    let _ ← tcMExpr value venv
+    markVEnvInitialized venv varName
 
   | .forLit init test update body =>
     let venv' ← tcMStm init venv
-    let _ ← tcMExpr test venv'
+    let _ ← tcExprHasType test venv' .bool "for condition"
     let venv'' ← tcMStm body venv'
     tcMStm update venv''
 
@@ -226,7 +286,7 @@ partial def tcMStm (mstm : Ast.MarkedStm) (venv : VEnv) : Except String VEnv := 
     .ok venv
 
   | .assert test =>
-    let _ ← tcMExpr test venv
+    let _ ← tcExprHasType test venv .bool "assert condition"
     .ok venv
 
   | .error e =>
@@ -248,10 +308,8 @@ partial def tcMStm (mstm : Ast.MarkedStm) (venv : VEnv) : Except String VEnv := 
 
   | .incr varName
   | .decr varName =>
-    if venv.contains varName then
-      .ok venv
-    else
-      .error s!"Used {varName} before defined"
+    let _ ← tcVarReadable venv varName
+    markVEnvInitialized venv varName
 
 def tcGDecl (gdecl : Ast.GDecl) : Except String Unit := do
   match gdecl with
@@ -261,7 +319,7 @@ def tcGDecl (gdecl : Ast.GDecl) : Except String Unit := do
         if env.contains name then
           .error s!"variable {name} declared more than once"
         else
-          .ok (insertVEnv env name varType))
+          .ok (insertVEnv env name varType true))
       {}
     let _ ← List.foldlM (λ venv mstm => tcMStm mstm venv) venv body
     .ok ()
@@ -271,33 +329,38 @@ def tcGDecl (gdecl : Ast.GDecl) : Except String Unit := do
 partial def tcReturnMStm (expected : Tau) (mstm : Ast.MarkedStm) (venv : VEnv) :
     Except String (Bool × VEnv) := do
   match mstm.node with
+  | .assign varName val =>
+    let venv' ← tcAssignVar venv varName val
+    .ok (false, venv')
   | .ret valOpt =>
     match valOpt with
     | some val =>
       let actual ← tcExprType val venv
       if tauEq actual expected then
-        .ok (true, venv)
+        .ok (true, initializeAllVEnv venv)
       else
         .error "return type does not match function return type"
     | none =>
       if tauEq expected .void then
-        .ok (true, venv)
+        .ok (true, initializeAllVEnv venv)
       else
         .error "return type does not match function return type"
   | .declare varName varType value =>
-    let venv' := insertVEnv venv varName varType
+    if venv.contains varName then
+      .error s!"variable {varName} declared more than once"
+    let venv' := insertVEnv venv varName varType false
     let (hasReturn, venv'') ← tcReturnMStm expected value venv'
-    .ok (hasReturn, venv'')
+    .ok (hasReturn, venv''.erase varName)
   | .defn varName varType =>
-    .ok (false, insertVEnv venv varName varType)
+    .ok (false, insertVEnv venv varName varType false)
   | .seq first rest =>
     let (firstReturn, venv') ← tcReturnMStm expected first venv
     let (restReturn, venv'') ← tcReturnMStm expected rest venv'
     .ok (firstReturn || restReturn, venv'')
   | .ifLit _ thenBranch elseBranch =>
     let (thenReturn, venv') ← tcReturnMStm expected thenBranch venv
-    let (elseReturn, venv'') ← tcReturnMStm expected elseBranch venv'
-    .ok (thenReturn || elseReturn, venv'')
+    let (elseReturn, venv'') ← tcReturnMStm expected elseBranch venv
+    .ok (thenReturn && elseReturn, mergeVEnvAfterBranches venv venv' venv'')
   | .whileLit _ body =>
     tcReturnMStm expected body venv
   | .forLit init _ update body =>
@@ -305,6 +368,16 @@ partial def tcReturnMStm (expected : Tau) (mstm : Ast.MarkedStm) (venv : VEnv) :
     let (bodyReturn, venv'') ← tcReturnMStm expected body venv'
     let (updateReturn, venv''') ← tcReturnMStm expected update venv''
     .ok (bodyReturn || updateReturn, venv''')
+  | .asop varName _ value =>
+    let _ ← tcVarReadable venv varName
+    let _ ← tcExprType value venv
+    let venv' ← markVEnvInitialized venv varName
+    .ok (false, venv')
+  | .incr varName
+  | .decr varName =>
+    let _ ← tcVarReadable venv varName
+    let venv' ← markVEnvInitialized venv varName
+    .ok (false, venv')
   | _ => .ok (false, venv)
 
 def tcControlFlow (gdecl : Ast.GDecl) (_venv : VEnv) : Except String Unit := do
@@ -315,7 +388,7 @@ def tcControlFlow (gdecl : Ast.GDecl) (_venv : VEnv) : Except String Unit := do
         if venv.contains name then
           .error s!"variable {name} declared more than once"
         else
-          .ok (insertVEnv venv name varType))
+          .ok (insertVEnv venv name varType true))
       {}
     let (containsReturn, _) ← body.foldlM
       (fun (found, venv) mstm => do
@@ -330,6 +403,8 @@ def tcControlFlow (gdecl : Ast.GDecl) (_venv : VEnv) : Except String Unit := do
   | _ => .ok ()
 
 def tc (program : Ast.Program) : Except String Unit := do
+  let _ ← tcMainFn program
+
   List.forM program (λ gdecl => do
     let _ ← tcGDecl gdecl
     let _ ← tcControlFlow gdecl {}
